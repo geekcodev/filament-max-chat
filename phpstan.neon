@@ -1,0 +1,31 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - vendor/phpstan/phpstan-phpunit/extension.neon
+
+parameters:
+    paths:
+        - src
+        - tests
+        - config
+        - database
+
+    level: max
+
+    parseModelCastsMethod: true
+
+    configDirectories:
+        - %currentWorkingDirectory%/config
+
+    ignoreErrors:
+        -
+            message: '~Parameter \#1 \$view of function view expects view\-string\|null, string given\.~'
+            paths:
+                - src/Livewire/OperatorChat.php
+        -
+            message: '#Unable to resolve the template type TComponent in call to method#'
+            paths:
+                - tests
+        -
+            message: '#Cannot call method (assertSet|assertSee|assertHasErrors|assertHasNoErrors|call)\(\) on mixed\.#'
+            paths:
+                - tests
