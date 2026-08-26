@@ -230,6 +230,7 @@ class OperatorChat extends Component
 
         $this->reset('reply', 'attachment');
 
+        $this->dispatch('clear-file-input');
         $this->loadMessages();
     }
 
