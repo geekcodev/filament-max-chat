@@ -83,18 +83,6 @@
                 </div>
                 @forelse ($this->messages as $message)
                     <div wire:key="message-{{ $message->id }}" class="group relative flex {{ $message->direction === ChatMessageDirection::Out ? 'justify-end' : 'justify-start' }}">
-                        @if ($this->canAnswer)
-                            <button
-                                type="button"
-                                wire:click="deleteMessage({{ $message->id }})"
-                                x-data
-                                x-on:click="if (! confirm('{{ __('filament-max-chat::chat.delete_confirm') }}')) { $event.preventDefault(); }"
-                                class="absolute -top-1.5 {{ $message->direction === ChatMessageDirection::Out ? '-left-1.5' : '-right-1.5' }} z-10 flex h-6 w-6 items-center justify-center rounded-full bg-gray-800 text-white opacity-0 shadow-sm transition-opacity pointer-events-none hover:bg-red-600 group-hover:opacity-100 group-hover:pointer-events-auto"
-                                title="{{ __('filament-max-chat::chat.delete_message') }}"
-                            >
-                                <x-heroicon-o-x-mark class="h-3 w-3" />
-                            </button>
-                        @endif
                         @if ($message->direction === ChatMessageDirection::In)
                             @php($userAvatar = $message->botChat?->maxUser?->avatar_url)
                             @if ($userAvatar)
@@ -105,7 +93,19 @@
                                 </div>
                             @endif
                         @endif
-                        <div class="max-w-[75%] rounded-lg px-3 py-2 text-sm {{ $message->direction === ChatMessageDirection::Out ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-white/10 dark:text-white' }}">
+                        <div class="relative max-w-[75%] rounded-lg px-3 py-2 text-sm {{ $message->direction === ChatMessageDirection::Out ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-white/10 dark:text-white' }}">
+                            @if ($this->canAnswer)
+                                <button
+                                    type="button"
+                                    wire:click="deleteMessage({{ $message->id }})"
+                                    x-data
+                                    x-on:click="if (! confirm('{{ __('filament-max-chat::chat.delete_confirm') }}')) { $event.preventDefault(); }"
+                                    class="absolute -top-2 -right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-400 opacity-0 shadow-sm transition-opacity pointer-events-none hover:bg-red-500 hover:text-white group-hover:opacity-100 group-hover:pointer-events-auto dark:bg-gray-700 dark:text-gray-500 dark:hover:bg-red-600"
+                                    title="{{ __('filament-max-chat::chat.delete_message') }}"
+                                >
+                                    <x-heroicon-o-trash class="h-3 w-3" />
+                                </button>
+                            @endif
                             @php($attachment = $message->attachment)
                             @if (is_array($attachment))
                                 @php($attachmentUrl = filled($attachment['path'] ?? null) ? route('filament-max-chat.attachment', ['message' => $message]) : null)
