@@ -1,7 +1,7 @@
 @php use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection; use GeekCo\FilamentMaxChat\Enums\ChatMessageSender; @endphp
 
 @php($pollInterval = config('filament-max-chat.ui.poll_interval', '10s'))
-@php($channel = config('filament-max-chat.broadcast_channel', 'operator.chat'))
+@php($channel = config('filament-max-chat.broadcast_channel', 'chat.channel'))
 
 <div
     class="flex h-[70vh] gap-4 overflow-hidden"
@@ -230,6 +230,8 @@
         if (! window.__operatorChatReady) {
             window.__operatorChatReady = true;
 
+            window.__fmcActiveChatId = @js($activeChatId);
+
             const subscribe = (root) => {
                 const channel = root.getAttribute('data-channel');
 
@@ -318,6 +320,10 @@
 
             document.addEventListener('chat-scroll-bottom', () => {
                 requestAnimationFrame(scrollToBottom);
+            });
+
+            document.addEventListener('chat-active', (e) => {
+                window.__fmcActiveChatId = e.detail.chatId;
             });
 
             document.addEventListener('livewire:update', () => {

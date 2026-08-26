@@ -31,7 +31,7 @@ return [
     |
     */
 
-    'broadcast_channel' => env('FILAMENT_MAX_CHAT_CHANNEL', 'operator.chat'),
+    'broadcast_channel' => env('FILAMENT_MAX_CHAT_CHANNEL', 'chat.channel'),
 
     /*
     |--------------------------------------------------------------------------
