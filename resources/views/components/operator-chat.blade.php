@@ -52,8 +52,65 @@
             </div>
         @else
             @php($activeChat = $this->conversations->firstWhere('id', $activeChatId))
+            @php($chatUser = $activeChat?->maxUser)
             <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-white/5">
-                <span class="truncate text-sm font-medium text-gray-950 dark:text-white">{{ $activeChat?->conversationName() }}</span>
+                <div class="flex min-w-0 items-center gap-2" x-data="{ showUserInfo: false }">
+                    @if ($chatUser?->avatar_url)
+                        <img src="{{ $chatUser->avatar_url }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
+                    @elseif ($chatUser)
+                        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
+                            <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
+                        </div>
+                    @endif
+                    <button type="button" @click="showUserInfo = true" class="min-w-0 truncate text-sm font-medium text-gray-950 hover:underline dark:text-white">
+                        {{ $activeChat?->conversationName() }}
+                    </button>
+
+                    <div
+                        x-show="showUserInfo"
+                        x-cloak
+                        x-transition:enter="ease-out duration-200"
+                        x-transition:enter-start="opacity-0"
+                        x-transition:enter-end="opacity-100"
+                        x-transition:leave="ease-in duration-150"
+                        x-transition:leave-start="opacity-100"
+                        x-transition:leave-end="opacity-0"
+                        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                        @click.self="showUserInfo = false"
+                        @keydown.escape.window="showUserInfo = false"
+                    >
+                        <div
+                            x-show="showUserInfo"
+                            x-transition:enter="ease-out duration-200"
+                            x-transition:enter-start="opacity-0 scale-95"
+                            x-transition:enter-end="opacity-100 scale-100"
+                            x-transition:leave="ease-in duration-150"
+                            x-transition:leave-start="opacity-100 scale-100"
+                            x-transition:leave-end="opacity-0 scale-95"
+                            class="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900"
+                            @click.stop
+                        >
+                            <div class="flex flex-col items-center gap-3">
+                                @if ($chatUser?->full_avatar_url || $chatUser?->avatar_url)
+                                    <img src="{{ $chatUser->full_avatar_url ?? $chatUser->avatar_url }}" alt="" class="h-20 w-20 rounded-full object-cover">
+                                @elseif ($chatUser)
+                                    <div class="flex h-20 w-20 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
+                                        <span class="text-2xl font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
+                                    </div>
+                                @endif
+                                <div class="text-center">
+                                    <p class="text-base font-semibold text-gray-950 dark:text-white">{{ $chatUser?->first_name }} {{ $chatUser?->last_name }}</p>
+                                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">ID: {{ $chatUser?->user_id }}</p>
+                                </div>
+                            </div>
+                            <div class="mt-5 flex justify-center">
+                                <button type="button" @click="showUserInfo = false" class="rounded-lg bg-gray-100 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20">
+                                    {{ __('filament-max-chat::chat.close') }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 @if ($this->canAnswer)
                     <button
                         type="button"
