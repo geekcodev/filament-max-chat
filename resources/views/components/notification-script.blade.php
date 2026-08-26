@@ -39,9 +39,11 @@
         } catch (e) { /* silent */ }
     }
 
+    let permissionRequested = false;
     function requestNotificationPermission() {
-        if (!BROWSER_ENABLED) return;
+        if (!BROWSER_ENABLED || permissionRequested) return;
         if ('Notification' in window && Notification.permission === 'default') {
+            permissionRequested = true;
             Notification.requestPermission();
         }
     }
@@ -69,32 +71,46 @@
     }
 
     function updateBadge(count) {
-        const links = document.querySelectorAll('a[href*="/chat"], a[href*="chat"]');
-        links.forEach(function (link) {
-            let badge = link.querySelector('.filament-max-chat-badge');
-            if (count > 0) {
-                if (!badge) {
-                    badge = document.createElement('span');
-                    badge.className = 'filament-max-chat-badge';
-                    badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:1.25rem;height:1.25rem;padding:0 .375rem;margin-left:.375rem;font-size:.75rem;font-weight:600;line-height:1;color:#fff;background:#ef4444;border-radius:9999px;';
-                    link.appendChild(badge);
+        const chatLink = document.querySelector('.fi-sidebar-item a[href$="/chat"]');
+        if (!chatLink) return;
+
+        const container = chatLink.querySelector('.fi-sidebar-item-badge-ctn');
+        if (count > 0) {
+            if (container) {
+                const badge = container.querySelector('[x-html]');
+                if (badge) {
+                    badge.setAttribute('x-html', count > 99 ? '99+' : String(count));
                 }
-                badge.textContent = count > 99 ? '99+' : String(count);
-            } else if (badge) {
-                badge.remove();
+            } else {
+                const li = chatLink.closest('.fi-sidebar-item');
+                if (li) {
+                    const span = document.createElement('span');
+                    span.className = 'fi-sidebar-item-badge-ctn';
+                    span.innerHTML = '<span class="fi-badge fi-badge-size-sm fi-badge-color-danger"><span>' + (count > 99 ? '99+' : String(count)) + '</span></span>';
+                    chatLink.appendChild(span);
+                }
             }
-        });
+        } else if (container) {
+            container.remove();
+        }
     }
 
     function handleMessage(data) {
         const count = data.unread_count || 0;
+        const incomingBotChatId = data.bot_chat_id || 0;
+        const activeChatId = window.__fmcActiveChatId || null;
+        const isActiveChat = activeChatId !== null && Number(activeChatId) === Number(incomingBotChatId);
+
         updateBadge(count);
-        playSound();
-        showToast(@json(__('filament-max-chat::chat.notification_body')));
-        showBrowserNotification(
-            @json(__('filament-max-chat::chat.notification_title')),
-            @json(__('filament-max-chat::chat.notification_body'))
-        );
+
+        if (!isActiveChat) {
+            playSound();
+            showToast(@json(__('filament-max-chat::chat.notification_body')));
+            showBrowserNotification(
+                @json(__('filament-max-chat::chat.notification_title')),
+                @json(__('filament-max-chat::chat.notification_body'))
+            );
+        }
     }
 
     function subscribeEcho() {
@@ -108,8 +124,12 @@
             });
     }
 
-    requestNotificationPermission();
     subscribeEcho();
+
+    document.addEventListener('click', function handler() {
+        requestNotificationPermission();
+        document.removeEventListener('click', handler);
+    }, { once: true });
 
     document.addEventListener('click', function (e) {
         if (e.target.closest('#fmc-sound-toggle')) {

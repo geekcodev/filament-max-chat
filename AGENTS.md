@@ -58,7 +58,7 @@ src/
   Support/TextSanitizer.php           санитизация HTML под whitelist тегов MAX + toMaxHtml()
   Models/BotChat.php                  расширение пакетной модели клиента (связи messages/lastMessage/maxUser)
   Models/ChatMessage.php              модель chat_messages
-  Events/ChatMessageCreated.php       ShouldBroadcast в private-канал operator.chat
+  Events/ChatMessageCreated.php       ShouldBroadcast в private-канал chat.channel
   Enums/{ChatMessageDirection,ChatMessageSender}.php
   Http/Controllers/ChatAttachmentController.php  авторизованная отдача вложений
 tests/                             PHPUnit + Orchestra Testbench

@@ -197,7 +197,7 @@ class ChatMessageServiceTest extends TestCase
 
         $event = new ChatMessageCreated($message);
         $this->assertSame('chat-message.created', $event->broadcastAs());
-        $this->assertSame('private-operator.chat', $event->broadcastOn()[0]->name);
+        $this->assertSame('private-chat.channel', $event->broadcastOn()[0]->name);
     }
 
     public function test_store_incoming_downloads_image_attachment(): void

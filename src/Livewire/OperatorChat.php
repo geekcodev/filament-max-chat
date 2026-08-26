@@ -76,6 +76,7 @@ class OperatorChat extends Component
         $this->loadMessages();
         $this->service?->markRead($chatId);
         $this->dispatch('chat-scroll-bottom');
+        $this->dispatch('chat-active', chatId: $chatId);
     }
 
     public function loadMoreMessages(): void

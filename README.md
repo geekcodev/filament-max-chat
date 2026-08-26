@@ -90,7 +90,7 @@ php artisan vendor:publish --tag=filament-max-chat-views    # views для пр�
 | Ключ                                      | По умолчанию                                      | Описание                                                                |
 |-------------------------------------------|---------------------------------------------------|-------------------------------------------------------------------------|
 | `permissions.view` / `permissions.answer` | `chat.view` / `chat.answer`                       | Права на просмотр чата / отправку ответов                               |
-| `broadcast_channel`                       | `operator.chat`                                   | Private-канал события `chat-message.created`                            |
+| `broadcast_channel`                       | `chat.channel`                                    | Private-канал события `chat-message.created`                            |
 | `bot_chat_model`                          | пакетный `Models\BotChat`                         | Модель диалога (расширение BotChat клиента); переопределяйте подклассом |
 | `user_model`                              | `Illuminate\Foundation\Auth\User`                 | Модель оператора для связи `operator_id`                                |
 | `attachments.*`                           | `local`, `chat-attachments`, 25 MiB               | Диск, каталог, лимиты, mime-список                                      |
