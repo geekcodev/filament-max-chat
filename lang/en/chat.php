@@ -57,4 +57,6 @@ return [
     'notification_body' => 'You have a new message in chat',
     'notification_sound_on' => 'Sound notifications: on',
     'notification_sound_off' => 'Sound notifications: off',
+
+    'close' => 'Close',
 ];

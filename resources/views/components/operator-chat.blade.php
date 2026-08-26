@@ -52,8 +52,65 @@
             </div>
         @else
             @php($activeChat = $this->conversations->firstWhere('id', $activeChatId))
+            @php($chatUser = $activeChat?->maxUser)
             <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-white/5">
-                <span class="truncate text-sm font-medium text-gray-950 dark:text-white">{{ $activeChat?->conversationName() }}</span>
+                <div class="flex min-w-0 items-center gap-2" x-data="{ showUserInfo: false }">
+                    @if ($chatUser?->avatar_url)
+                        <img src="{{ $chatUser->avatar_url }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
+                    @elseif ($chatUser)
+                        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
+                            <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
+                        </div>
+                    @endif
+                    <button type="button" @click="showUserInfo = true" class="min-w-0 truncate text-sm font-medium text-gray-950 hover:underline dark:text-white">
+                        {{ $activeChat?->conversationName() }}
+                    </button>
+
+                    <div
+                        x-show="showUserInfo"
+                        x-cloak
+                        x-transition:enter="ease-out duration-200"
+                        x-transition:enter-start="opacity-0"
+                        x-transition:enter-end="opacity-100"
+                        x-transition:leave="ease-in duration-150"
+                        x-transition:leave-start="opacity-100"
+                        x-transition:leave-end="opacity-0"
+                        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                        @click.self="showUserInfo = false"
+                        @keydown.escape.window="showUserInfo = false"
+                    >
+                        <div
+                            x-show="showUserInfo"
+                            x-transition:enter="ease-out duration-200"
+                            x-transition:enter-start="opacity-0 scale-95"
+                            x-transition:enter-end="opacity-100 scale-100"
+                            x-transition:leave="ease-in duration-150"
+                            x-transition:leave-start="opacity-100 scale-100"
+                            x-transition:leave-end="opacity-0 scale-95"
+                            class="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900"
+                            @click.stop
+                        >
+                            <div class="flex flex-col items-center gap-3">
+                                @if ($chatUser?->full_avatar_url || $chatUser?->avatar_url)
+                                    <img src="{{ $chatUser->full_avatar_url ?? $chatUser->avatar_url }}" alt="" class="h-20 w-20 rounded-full object-cover">
+                                @elseif ($chatUser)
+                                    <div class="flex h-20 w-20 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
+                                        <span class="text-2xl font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
+                                    </div>
+                                @endif
+                                <div class="text-center">
+                                    <p class="text-base font-semibold text-gray-950 dark:text-white">{{ $chatUser?->first_name }} {{ $chatUser?->last_name }}</p>
+                                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">ID: {{ $chatUser?->user_id }}</p>
+                                </div>
+                            </div>
+                            <div class="mt-5 flex justify-center">
+                                <button type="button" @click="showUserInfo = false" class="rounded-lg bg-gray-100 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20">
+                                    {{ __('filament-max-chat::chat.close') }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 @if ($this->canAnswer)
                     <button
                         type="button"
@@ -83,18 +140,6 @@
                 </div>
                 @forelse ($this->messages as $message)
                     <div wire:key="message-{{ $message->id }}" class="group relative flex {{ $message->direction === ChatMessageDirection::Out ? 'justify-end' : 'justify-start' }}">
-                        @if ($this->canAnswer)
-                            <button
-                                type="button"
-                                wire:click="deleteMessage({{ $message->id }})"
-                                x-data
-                                x-on:click="if (! confirm('{{ __('filament-max-chat::chat.delete_confirm') }}')) { $event.preventDefault(); }"
-                                class="absolute -top-1.5 {{ $message->direction === ChatMessageDirection::Out ? '-left-1.5' : '-right-1.5' }} z-10 flex h-6 w-6 items-center justify-center rounded-full bg-gray-800 text-white opacity-0 shadow-sm transition-opacity pointer-events-none hover:bg-red-600 group-hover:opacity-100 group-hover:pointer-events-auto"
-                                title="{{ __('filament-max-chat::chat.delete_message') }}"
-                            >
-                                <x-heroicon-o-x-mark class="h-3 w-3" />
-                            </button>
-                        @endif
                         @if ($message->direction === ChatMessageDirection::In)
                             @php($userAvatar = $message->botChat?->maxUser?->avatar_url)
                             @if ($userAvatar)
@@ -105,7 +150,19 @@
                                 </div>
                             @endif
                         @endif
-                        <div class="max-w-[75%] rounded-lg px-3 py-2 text-sm {{ $message->direction === ChatMessageDirection::Out ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-white/10 dark:text-white' }}">
+                        <div class="relative max-w-[75%] rounded-lg px-3 py-2 text-sm {{ $message->direction === ChatMessageDirection::Out ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-white/10 dark:text-white' }}">
+                            @if ($this->canAnswer)
+                                <button
+                                    type="button"
+                                    wire:click="deleteMessage({{ $message->id }})"
+                                    x-data
+                                    x-on:click="if (! confirm('{{ __('filament-max-chat::chat.delete_confirm') }}')) { $event.preventDefault(); }"
+                                    class="absolute -top-2 -right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-400 opacity-0 shadow-sm transition-opacity pointer-events-none hover:bg-red-500 hover:text-white group-hover:opacity-100 group-hover:pointer-events-auto dark:bg-gray-700 dark:text-gray-500 dark:hover:bg-red-600"
+                                    title="{{ __('filament-max-chat::chat.delete_message') }}"
+                                >
+                                    <x-heroicon-o-trash class="h-3 w-3" />
+                                </button>
+                            @endif
                             @php($attachment = $message->attachment)
                             @if (is_array($attachment))
                                 @php($attachmentUrl = filled($attachment['path'] ?? null) ? route('filament-max-chat.attachment', ['message' => $message]) : null)

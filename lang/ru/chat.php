@@ -57,4 +57,6 @@ return [
     'notification_body' => 'У вас новое сообщение в чате',
     'notification_sound_on' => 'Звуковые оповещения: вкл',
     'notification_sound_off' => 'Звуковые оповещения: выкл',
+
+    'close' => 'Закрыть',
 ];
