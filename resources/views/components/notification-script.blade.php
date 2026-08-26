@@ -78,27 +78,21 @@
     }
 
     function applyBadge(count) {
-        const chatLink = document.querySelector('.fi-sidebar-item a[href$="/chat"]');
+        const chatLink = document.querySelector('.fi-sidebar-item-btn[href$="/chat"]');
         if (!chatLink) return;
 
-        const container = chatLink.querySelector('.fi-sidebar-item-badge-ctn');
+        const existing = chatLink.querySelector('.fi-badge-label');
         if (count > 0) {
-            if (container) {
-                const label = container.querySelector('.fi-badge-label');
-                if (label) {
-                    label.textContent = count > 99 ? '99+' : String(count);
-                }
+            if (existing) {
+                existing.textContent = count > 99 ? '99+' : String(count);
             } else {
-                const li = chatLink.closest('.fi-sidebar-item');
-                if (li) {
-                    const span = document.createElement('span');
-                    span.className = 'fi-sidebar-item-badge-ctn';
-                    span.innerHTML = '<span class="fi-badge fi-size-sm fi-color-danger"><span class="fi-badge-label-ctn"><span class="fi-badge-label">' + (count > 99 ? '99+' : String(count)) + '</span></span></span>';
-                    chatLink.appendChild(span);
-                }
+                const badgeCtn = document.createElement('span');
+                badgeCtn.className = 'fi-sidebar-item-badge-ctn';
+                badgeCtn.innerHTML = '<span class="fi-badge fi-size-md fi-color-danger"><span class="fi-badge-label-ctn"><span class="fi-badge-label">' + (count > 99 ? '99+' : String(count)) + '</span></span></span>';
+                chatLink.appendChild(badgeCtn);
             }
-        } else if (container) {
-            container.remove();
+        } else if (existing) {
+            existing.closest('.fi-sidebar-item-badge-ctn')?.remove();
         }
     }
 

@@ -253,20 +253,23 @@
 
                         <div
                             class="flex flex-wrap items-center gap-3"
-                            x-data
-                            x-effect="if ($wire.$attachment === null) { $refs.fileInput.value = '' }"
+                            x-data="{ uploading: false }"
+                            x-on:livewire:upload:started.window="uploading = true"
+                            x-on:livewire:upload:finished.window="uploading = false; $wire.$attachment === null && ($refs.fileInput.value = '')"
+                            x-on:livewire:upload:cancelled.window="uploading = false"
+                            x-on:livewire:upload:error.window="uploading = false"
+                            x-on:clear-file-input.window="$refs.fileInput.value = ''"
                         >
                             <input
                                 type="file"
                                 wire:model="attachment"
-                                wire:ignore
                                 x-ref="fileInput"
                                 accept=".{{ str_replace(',', ',.', config('filament-max-chat.attachments.mimes')) }}"
                                 class="text-sm text-gray-600 file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200 dark:text-gray-400 dark:file:bg-white/10 dark:file:text-gray-200"
                             >
                             <span wire:loading wire:target="attachment" class="text-xs text-gray-500">{{ __('filament-max-chat::chat.uploading') }}</span>
                             @if ($attachment)
-                                <button type="button" wire:click="$set('attachment', null)" class="text-xs text-danger-600 hover:underline">
+                                <button type="button" wire:click="$set('attachment', null)" x-show="!uploading" class="text-xs text-danger-600 hover:underline">
                                     {{ __('filament-max-chat::chat.remove_file') }}
                                 </button>
                             @endif
