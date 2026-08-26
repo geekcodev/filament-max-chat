@@ -43,6 +43,12 @@ public function panel(Panel $panel): Panel
 }
 ```
 
+Подключение стилей (Tailwind) — добавьте в `resources/css/filament.css`:
+
+```css
+@import 'vendor/geekcodev/filament-max-chat/resources/css/filament-max-chat.css';
+```
+
 Права (пример со spatie/laravel-permission):
 
 ```php
@@ -106,8 +112,7 @@ php artisan vendor:publish --tag=filament-max-chat-views    # views для пр�
 
 ## Тестирование и разработка
 
-PHP/Composer на хосте не требуются — всё через Docker (образ `ghcr.io/geekcodev/php:8.4-bookworm`, Orchestra
-Testbench):
+PHP/Composer на хосте не требуются — всё через Docker (образ `ghcr.io/geekcodev/php:8.4-bookworm`, Orchestra Testbench):
 
 ```bash
 docker compose up -d --build   # контейнер app (PHP 8.4)

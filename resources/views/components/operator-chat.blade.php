@@ -89,7 +89,7 @@
                                 wire:click="deleteMessage({{ $message->id }})"
                                 x-data
                                 x-on:click="if (! confirm('{{ __('filament-max-chat::chat.delete_confirm') }}')) { $event.preventDefault(); }"
-                                class="absolute -top-1.5 {{ $message->direction === ChatMessageDirection::Out ? '-left-1.5' : '-right-1.5' }} z-10 hidden h-6 w-6 items-center justify-center rounded-full bg-gray-800 text-white opacity-0 shadow-sm transition-opacity hover:bg-red-600 group-hover:flex"
+                                class="absolute -top-1.5 {{ $message->direction === ChatMessageDirection::Out ? '-left-1.5' : '-right-1.5' }} z-10 flex h-6 w-6 items-center justify-center rounded-full bg-gray-800 text-white opacity-0 shadow-sm transition-opacity pointer-events-none hover:bg-red-600 group-hover:opacity-100 group-hover:pointer-events-auto"
                                 title="{{ __('filament-max-chat::chat.delete_message') }}"
                             >
                                 <x-heroicon-o-x-mark class="h-3 w-3" />
@@ -194,10 +194,16 @@
                             <p class="text-sm text-danger-600">{{ $message }}</p>
                         @enderror
 
-                        <div class="flex flex-wrap items-center gap-3">
+                        <div
+                            class="flex flex-wrap items-center gap-3"
+                            x-data
+                            x-effect="if ($wire.$attachment === null) { $refs.fileInput.value = '' }"
+                        >
                             <input
                                 type="file"
                                 wire:model="attachment"
+                                wire:ignore
+                                x-ref="fileInput"
                                 accept=".{{ str_replace(',', ',.', config('filament-max-chat.attachments.mimes')) }}"
                                 class="text-sm text-gray-600 file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200 dark:text-gray-400 dark:file:bg-white/10 dark:file:text-gray-200"
                             >

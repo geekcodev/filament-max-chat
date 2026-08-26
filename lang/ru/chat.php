@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 return [
     'page' => [
-        'title' => 'Чат оператора',
+        'title' => 'Чат',
     ],
 
     'direction' => [
