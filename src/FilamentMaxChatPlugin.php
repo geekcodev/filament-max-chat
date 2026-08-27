@@ -34,6 +34,7 @@ class FilamentMaxChatPlugin implements Plugin
             PanelsRenderHook::SCRIPTS_AFTER,
             static fn (): ViewContract => \Illuminate\Support\Facades\View::make(
                 'filament-max-chat::components.notification-script',
+                ['slug' => config('filament-max-chat.ui.slug', 'chat')],
             ),
         );
     }
