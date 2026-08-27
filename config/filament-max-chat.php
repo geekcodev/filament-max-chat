@@ -69,10 +69,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Роут вложений
+    | HTTP-роуты пакета (web-мидлвара, авторизация по permissions.view)
     |--------------------------------------------------------------------------
     |
-    | Отдача файлов из приватного диска (web-мидлвара, авторизация по permissions.view).
+    | Отдача файлов из приватного диска и эндпоинт счётчика непрочитанного
+    | (используется глобальным HTTP-poll уведомлений). enabled=false отключает
+    | оба роута целиком.
     |
     */
 
@@ -80,6 +82,7 @@ return [
         'enabled' => filter_var(env('FILAMENT_MAX_CHAT_ROUTE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
         'uri' => env('FILAMENT_MAX_CHAT_ROUTE_URI', '/admin/chat/messages/{message}/attachment'),
         'login_url' => env('FILAMENT_MAX_CHAT_LOGIN_URL', '/admin/login'),
+        'unread_count_uri' => env('FILAMENT_MAX_CHAT_UNREAD_COUNT_URI', '/admin/chat/unread-count'),
     ],
 
     /*
@@ -107,6 +110,8 @@ return [
     | Глобальные оповещения о новых сообщениях на любой странице админки.
     | browser — browser notification (стандартный Notification API);
     | sound   — звуковой сигнал через Web Audio API.
+    | poll_enabled / poll_interval_seconds — HTTP-poll счётчика непрочитанного
+    | как фолбэк к Echo (обновляет бейдж и уведомления на всех страницах).
     |
     */
 
@@ -114,6 +119,8 @@ return [
         'enabled' => filter_var(env('FILAMENT_MAX_CHAT_NOTIFICATIONS_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
         'sound' => filter_var(env('FILAMENT_MAX_CHAT_NOTIFICATIONS_SOUND', true), FILTER_VALIDATE_BOOLEAN),
         'browser' => filter_var(env('FILAMENT_MAX_CHAT_NOTIFICATIONS_BROWSER', true), FILTER_VALIDATE_BOOLEAN),
+        'poll_enabled' => filter_var(env('FILAMENT_MAX_CHAT_NOTIFICATIONS_POLL_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'poll_interval_seconds' => (int) env('FILAMENT_MAX_CHAT_NOTIFICATIONS_POLL_INTERVAL', 15),
     ],
 
 ];

@@ -10,9 +10,14 @@
     const SLUG = @json($slug ?? config('filament-max-chat.ui.slug', 'chat'));
     const SOUND_ENABLED_DEFAULT = @json(config('filament-max-chat.notifications.sound', true));
     const BROWSER_ENABLED = @json(config('filament-max-chat.notifications.browser', true));
+    const POLL_ENABLED = @json(config('filament-max-chat.notifications.poll_enabled', true));
+    const POLL_INTERVAL_MS = @json((int) config('filament-max-chat.notifications.poll_interval_seconds', 15) * 1000);
+    const UNREAD_COUNT_URL = @json(config('filament-max-chat.route.unread_count_uri', '/admin/chat/unread-count'));
     const STORAGE_KEY = 'filament-max-chat-sound';
     const BADGE_STORAGE_KEY = 'filament-max-chat-unread';
     const TOAST_DURATION = 5000;
+
+    let lastCount = null;
 
     function isSoundEnabled() {
         const stored = localStorage.getItem(STORAGE_KEY);
@@ -128,25 +133,58 @@
         const serverCount = readSidebarBadgeCount();
         const count = serverCount ?? (parseInt(localStorage.getItem(BADGE_STORAGE_KEY) || '0', 10) || 0);
 
+        lastCount = count;
         updateBadge(count);
     }
 
-    function handleMessage(data) {
-        const count = data.unread_count || 0;
-        const incomingBotChatId = data.bot_chat_id || 0;
+    function handleUnread(unreadCount, botChatId) {
+        const count = Number(unreadCount) || 0;
+        const increased = lastCount !== null && count > lastCount;
         const activeChatId = window.__fmcActiveChatId || null;
-        const isActiveChat = activeChatId !== null && Number(activeChatId) === Number(incomingBotChatId);
+        const isActiveChat = activeChatId !== null && botChatId !== null && Number(activeChatId) === Number(botChatId);
 
+        lastCount = count;
         updateBadge(count);
 
-        if (!isActiveChat) {
-            playSound();
-            showToast(@json(__('filament-max-chat::chat.notification_body')));
-            showBrowserNotification(
-                @json(__('filament-max-chat::chat.notification_title')),
-                @json(__('filament-max-chat::chat.notification_body'))
-            );
-        }
+        if (!increased || isActiveChat) return;
+
+        playSound();
+        showToast(@json(__('filament-max-chat::chat.notification_body')));
+        showBrowserNotification(
+            @json(__('filament-max-chat::chat.notification_title')),
+            @json(__('filament-max-chat::chat.notification_body'))
+        );
+    }
+
+    function handleMessage(data) {
+        handleUnread(data.unread_count, data.bot_chat_id);
+    }
+
+    async function pollUnread() {
+        if (!POLL_ENABLED) return;
+
+        try {
+            const response = await fetch(UNREAD_COUNT_URL, {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+            });
+
+            if (!response.ok) return;
+
+            const data = await response.json();
+            handleUnread(data.unread_count ?? 0, data.latest_bot_chat_id ?? null);
+        } catch (e) { /* silent */ }
+    }
+
+    function startPolling() {
+        if (!POLL_ENABLED || window.__fmcPollStarted) return;
+
+        window.__fmcPollStarted = true;
+        pollUnread();
+        setInterval(pollUnread, POLL_INTERVAL_MS);
     }
 
     function subscribeEcho() {
@@ -162,9 +200,11 @@
 
     restoreBadge();
     subscribeEcho();
+    startPolling();
 
     document.addEventListener('chat-unread', (e) => {
-        updateBadge(Number(e.detail.count) || 0);
+        lastCount = Number(e.detail.count) || 0;
+        updateBadge(lastCount);
     });
 
     document.addEventListener('livewire:navigated', () => {
