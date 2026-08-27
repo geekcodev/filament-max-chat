@@ -1,11 +1,13 @@
 @props([
     'channel' => null,
+    'slug' => null,
 ])
 
 @if(config('filament-max-chat.notifications.enabled'))
 <script>
 (function () {
     const CHANNEL = @json($channel ?? config('filament-max-chat.broadcast_channel'));
+    const SLUG = @json($slug ?? config('filament-max-chat.ui.slug', 'chat'));
     const SOUND_ENABLED_DEFAULT = @json(config('filament-max-chat.notifications.sound', true));
     const BROWSER_ENABLED = @json(config('filament-max-chat.notifications.browser', true));
     const STORAGE_KEY = 'filament-max-chat-sound';
@@ -72,14 +74,35 @@
         }, TOAST_DURATION);
     }
 
-    function updateBadge(count) {
-        localStorage.setItem(BADGE_STORAGE_KEY, String(count));
-        applyBadge(count);
+    function findChatLink() {
+        return Array.from(document.querySelectorAll('.fi-sidebar-item-btn'))
+            .find((link) => (link.getAttribute('href') || '').endsWith('/' + SLUG)) || null;
+    }
+
+    function readSidebarBadgeCount() {
+        const chatLink = findChatLink();
+
+        if (!chatLink) {
+            return null;
+        }
+
+        const label = chatLink.querySelector('.fi-badge-label');
+
+        if (!label) {
+            return null;
+        }
+
+        const value = parseInt((label.textContent || '').trim(), 10);
+
+        return Number.isFinite(value) ? value : null;
     }
 
     function applyBadge(count) {
-        const chatLink = document.querySelector('.fi-sidebar-item-btn[href$="/chat"]');
-        if (!chatLink) return;
+        const chatLink = findChatLink();
+
+        if (!chatLink) {
+            return;
+        }
 
         const existing = chatLink.querySelector('.fi-badge-label');
         if (count > 0) {
@@ -96,9 +119,16 @@
         }
     }
 
-    function restoreBadge() {
-        const count = parseInt(localStorage.getItem(BADGE_STORAGE_KEY) || '0', 10);
+    function updateBadge(count) {
+        localStorage.setItem(BADGE_STORAGE_KEY, String(count));
         applyBadge(count);
+    }
+
+    function restoreBadge() {
+        const serverCount = readSidebarBadgeCount();
+        const count = serverCount ?? (parseInt(localStorage.getItem(BADGE_STORAGE_KEY) || '0', 10) || 0);
+
+        updateBadge(count);
     }
 
     function handleMessage(data) {
@@ -133,7 +163,17 @@
     restoreBadge();
     subscribeEcho();
 
-    document.addEventListener('livewire:navigated', restoreBadge);
+    document.addEventListener('chat-unread', (e) => {
+        updateBadge(Number(e.detail.count) || 0);
+    });
+
+    document.addEventListener('livewire:navigated', () => {
+        restoreBadge();
+
+        if (!document.querySelector('[data-channel]')) {
+            window.__fmcActiveChatId = null;
+        }
+    });
 
     document.addEventListener('click', function handler() {
         requestNotificationPermission();

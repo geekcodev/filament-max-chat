@@ -168,6 +168,56 @@ class OperatorChatTest extends TestCase
         $this->assertNotNull($fresh->read_at);
     }
 
+    public function test_select_chat_dispatches_updated_unread_count(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->call('selectChat', $chat->id)
+            ->assertDispatched('chat-unread', count: 0);
+    }
+
+    public function test_refresh_dispatches_updated_unread_count(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->call('refresh')
+            ->assertDispatched('chat-unread', count: 0);
+    }
+
+    public function test_delete_message_dispatches_updated_unread_count(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $message = $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->call('deleteMessage', $message->id)
+            ->assertDispatched('chat-unread', count: 0);
+    }
+
+    public function test_clear_chat_dispatches_updated_unread_count(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+
+        $this->mock(MaxChatSender::class)->shouldReceive('deleteMessage')->zeroOrMoreTimes();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->call('clearChat')
+            ->assertDispatched('chat-unread', count: 0);
+    }
+
     public function test_reply_with_file_attachment_sends_and_stores_meta(): void
     {
         Storage::fake('local');

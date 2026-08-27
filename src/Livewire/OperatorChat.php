@@ -75,6 +75,7 @@ class OperatorChat extends Component
         $this->activeChatId = $chatId;
         $this->loadMessages();
         $this->service?->markRead($chatId);
+        $this->dispatchUnreadCount();
         $this->dispatch('chat-scroll-bottom');
         $this->dispatch('chat-active', chatId: $chatId);
     }
@@ -114,6 +115,8 @@ class OperatorChat extends Component
         $this->service?->clearHistory($this->activeChatId);
 
         $this->messages = new Collection();
+
+        $this->dispatchUnreadCount();
     }
 
     public function deleteMessage(int $messageId): void
@@ -127,6 +130,8 @@ class OperatorChat extends Component
         $this->messages = $this->messages->reject(
             static fn (ChatMessage $m): bool => $m->id === $messageId,
         )->values();
+
+        $this->dispatchUnreadCount();
     }
 
     /**
@@ -243,6 +248,8 @@ class OperatorChat extends Component
 
         $this->service?->markRead($this->activeChatId);
 
+        $this->dispatchUnreadCount();
+
         $this->appendNewMessages();
     }
 
@@ -255,6 +262,11 @@ class OperatorChat extends Component
         }
 
         $this->messages = $this->service?->messagesFor($this->activeChatId) ?? new Collection();
+    }
+
+    private function dispatchUnreadCount(): void
+    {
+        $this->dispatch('chat-unread', count: $this->service?->totalUnreadCount() ?? 0);
     }
 
     private function appendNewMessages(): void
