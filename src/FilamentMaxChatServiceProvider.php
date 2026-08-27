@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxChat;
 
 use GeekCo\FilamentMaxChat\Http\Controllers\ChatAttachmentController;
+use GeekCo\FilamentMaxChat\Http\Controllers\UnreadCountController;
 use GeekCo\FilamentMaxChat\Livewire\OperatorChat as OperatorChatComponent;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -26,6 +27,7 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
         Livewire::component('filament-max-chat', OperatorChatComponent::class);
 
         $this->registerAttachmentRoute();
+        $this->registerUnreadCountRoute();
 
         if ($this->app->runningInConsole()) {
             $this->publishes([
@@ -58,5 +60,19 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
         )
             ->middleware('web')
             ->name('filament-max-chat.attachment');
+    }
+
+    private function registerUnreadCountRoute(): void
+    {
+        if (config()->boolean('filament-max-chat.route.enabled') === false) {
+            return;
+        }
+
+        Route::get(
+            (string) config()->string('filament-max-chat.route.unread_count_uri'),
+            UnreadCountController::class,
+        )
+            ->middleware('web')
+            ->name('filament-max-chat.unread-count');
     }
 }

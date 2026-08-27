@@ -11,6 +11,8 @@ Filament-плагин: **чат оператора** с пользователя
 - ответы оператора: HTML-форматирование (тулбар), вложения (фото/видео/аудио/файлы) через `uploadMedia`;
 - входящие медиа скачиваются в приватное хранилище и отдаются через авторизованный роут;
 - real-time обновления через Echo/Reverb (private-канал) + fallback `wire:poll`;
+- глобальные уведомления и счётчик непрочитанного на всех страницах панели: Echo + HTTP-poll фолбэк (опционально,
+  `notifications.poll_enabled`, интервал `notifications.poll_interval_seconds`);
 - права настраиваются строками (`chat.view` / `chat.answer` по умолчанию) — совместимо со spatie/laravel-permission и
   Gate;
 - всё (канал broadcast, диск вложений, лимиты, навигация, slug страницы) — в конфиге.
@@ -87,15 +89,16 @@ php artisan vendor:publish --tag=filament-max-chat-views    # views для пр�
 
 Ключевые параметры:
 
-| Ключ                                      | По умолчанию                                      | Описание                                                                |
-|-------------------------------------------|---------------------------------------------------|-------------------------------------------------------------------------|
-| `permissions.view` / `permissions.answer` | `chat.view` / `chat.answer`                       | Права на просмотр чата / отправку ответов                               |
-| `broadcast_channel`                       | `chat.channel`                                    | Private-канал события `chat-message.created`                            |
-| `bot_chat_model`                          | пакетный `Models\BotChat`                         | Модель диалога (расширение BotChat клиента); переопределяйте подклассом |
-| `user_model`                              | `Illuminate\Foundation\Auth\User`                 | Модель оператора для связи `operator_id`                                |
-| `attachments.*`                           | `local`, `chat-attachments`, 25 MiB               | Диск, каталог, лимиты, mime-список                                      |
-| `route.*`                                 | вкл., `/admin/chat/messages/{message}/attachment` | Роут отдачи вложений и URL редиректа гостя                              |
-| `ui.*`                                    | см. конфиг                                        | Иконка/подпись/sort/slug навигации, интервал poll, лимит сообщений      |
+| Ключ                                      | По умолчанию                                                                  | Описание                                                                |
+|-------------------------------------------|-------------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| `permissions.view` / `permissions.answer` | `chat.view` / `chat.answer`                                                   | Права на просмотр чата / отправку ответов                               |
+| `broadcast_channel`                       | `chat.channel`                                                                | Private-канал события `chat-message.created`                            |
+| `bot_chat_model`                          | пакетный `Models\BotChat`                                                     | Модель диалога (расширение BotChat клиента); переопределяйте подклассом |
+| `user_model`                              | `Illuminate\Foundation\Auth\User`                                             | Модель оператора для связи `operator_id`                                |
+| `attachments.*`                           | `local`, `chat-attachments`, 25 MiB                                           | Диск, каталог, лимиты, mime-список                                      |
+| `route.*`                                 | вкл., `/admin/chat/messages/{message}/attachment`, `/admin/chat/unread-count` | Роуты отдачи вложений и счётчика непрочитанного, URL редиректа гостя    |
+| `ui.*`                                    | см. конфиг                                                                    | Иконка/подпись/sort/slug навигации, интервал poll, лимит сообщений      |
+| `notifications.*`                         | вкл., звук, browser, poll 15s                                                 | Уведомления о новых сообщениях + HTTP-poll фолбэк к Echo                |
 
 ## Архитектура
 

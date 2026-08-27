@@ -61,6 +61,7 @@ src/
   Events/ChatMessageCreated.php       ShouldBroadcast в private-канал chat.channel
   Enums/{ChatMessageDirection,ChatMessageSender}.php
   Http/Controllers/ChatAttachmentController.php  авторизованная отдача вложений
+  Http/Controllers/UnreadCountController.php     JSON-счётчик непрочитанного (HTTP-poll уведомлений на всех страницах)
 tests/                             PHPUnit + Orchestra Testbench
   Fixtures/                           AdminPanelProvider, TestUser, миграция users, Gate chat.view/chat.answer
   Unit/                               TextSanitizer, ChatAttachmentStore, ChatMessageService
@@ -90,7 +91,9 @@ phpstan.neon                       level max (Larastan), configDirectories → c
 - **Вложения**: метаданные (type/path/name/mime/size) — JSON-колонка `attachment`; файлы на диске `attachments.disk`
   вне public; отдача только через `GET route.uri` с правом `permissions.view` (`ChatAttachmentController`).
 - **Real-time**: `ChatMessageCreated` (broadcastAs `chat-message.created`) в private-канал `broadcast_channel`;
-  клиентская часть — `window.Echo`, фолбэк — `wire:poll` (интервал `ui.poll_seconds`).
+  клиентская часть — `window.Echo`, фолбэк — `wire:poll` (интервал `ui.poll_seconds`). Глобальный счётчик
+  непрочитанного на всех страницах панели: Echo + HTTP-poll (`GET route.unread_count_uri` →
+  `UnreadCountController`, JSON `{unread_count, latest_bot_chat_id}`, интервал `notifications.poll_interval_seconds`).
 - **Переопределение моделей**: `bot_chat_model` — подкласс пакетного `Models\BotChat` (та же таблица `max_bot_chats`);
   `user_model` — модель оператора для связи `operator_id`.
 - **Миграция** `0001_01_01_000001_create_chat_messages_table.php` грузится автоматически из пакета; FK на
@@ -130,7 +133,8 @@ docker compose exec app composer audit     # composer audit
 
 ## 8. OWASP Top 10 (обязательно при написании кода)
 
-- **A01** — доступ к странице/роуту вложений только по правам (`permissions.view`); fail-closed.
+- **A01** — доступ к странице/роуту вложений и счётчика непрочитанного только по правам (`permissions.view`);
+  fail-closed, JSON 401/403 для неавторизованного/без прав.
 - **A02** — секреты только в env; вложения — вне public-корня.
 - **A03** — HTML операторов санитизируется `TextSanitizer` (whitelist тегов MAX) до сохранения и до отправки;
   Blade-экранирование по умолчанию.
