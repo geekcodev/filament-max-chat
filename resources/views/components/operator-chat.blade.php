@@ -1,4 +1,4 @@
-@php use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection; use GeekCo\FilamentMaxChat\Enums\ChatMessageSender; @endphp
+@php use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection; use GeekCo\FilamentMaxChat\Enums\MaxMessageSender; @endphp
 
 @php($pollInterval = config('filament-max-chat.ui.poll_interval', '10s'))
 @php($channel = config('filament-max-chat.broadcast_channel', 'chat.channel'))
@@ -114,6 +114,16 @@
                 @if ($this->canAnswer)
                     <button
                         type="button"
+                        wire:click="removeChat"
+                        x-data
+                        x-on:click="if (! confirm('{{ __('filament-max-chat::chat.remove_chat_confirm') }}')) { $event.preventDefault(); }"
+                        class="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-300"
+                        title="{{ __('filament-max-chat::chat.remove_chat') }}"
+                    >
+                        <x-heroicon-o-x-circle class="h-4 w-4" />
+                    </button>
+                    <button
+                        type="button"
                         wire:click="clearChat"
                         x-data
                         x-on:click="if (! confirm('{{ __('filament-max-chat::chat.clear_confirm') }}')) { $event.preventDefault(); }"
@@ -139,18 +149,18 @@
                     {{ __('filament-max-chat::chat.loading') }}
                 </div>
                 @forelse ($this->messages as $message)
-                    <div wire:key="message-{{ $message->id }}" class="group relative flex {{ $message->direction === ChatMessageDirection::Out ? 'justify-end' : 'justify-start' }}">
-                        @if ($message->direction === ChatMessageDirection::In)
-                            @php($userAvatar = $message->botChat?->maxUser?->avatar_url)
+                    <div wire:key="message-{{ $message->id }}" class="group relative flex {{ $message->direction === MaxMessageDirection::Out ? 'justify-end' : 'justify-start' }}">
+                        @if ($message->direction === MaxMessageDirection::In)
+                            @php($userAvatar = $message->maxChat?->maxUser?->avatar_url)
                             @if ($userAvatar)
                                 <img src="{{ $userAvatar }}" alt="" class="mr-2 mt-1 h-8 w-8 shrink-0 rounded-full object-cover">
                             @else
                                 <div class="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
-                                    <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($message->botChat?->maxUser?->first_name ?? '?', 0, 1) . mb_substr($message->botChat?->maxUser?->last_name ?? '', 0, 1)) }}</span>
+                                    <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($message->maxChat?->maxUser?->first_name ?? '?', 0, 1) . mb_substr($message->maxChat?->maxUser?->last_name ?? '', 0, 1)) }}</span>
                                 </div>
                             @endif
                         @endif
-                        <div class="relative max-w-[75%] rounded-lg px-3 py-2 text-sm {{ $message->direction === ChatMessageDirection::Out ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-white/10 dark:text-white' }}">
+                        <div class="relative max-w-[75%] rounded-lg px-3 py-2 text-sm {{ $message->direction === MaxMessageDirection::Out ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-white/10 dark:text-white' }}">
                             @if ($this->canAnswer)
                                 <button
                                     type="button"
@@ -194,7 +204,7 @@
                                     <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.file_unavailable') }}</p>
                                 @endif
                             @endif
-                            @if ($message->direction === ChatMessageDirection::Out && $message->sender_type === ChatMessageSender::Operator && filled($message->text))
+                            @if ($message->direction === MaxMessageDirection::Out && $message->sender_type === MaxMessageSender::Operator && filled($message->text))
                                 <div class="whitespace-pre-line break-words [&_a]:underline">{!! $message->text !!}</div>
                             @elseif (filled($message->text))
                                 <p class="whitespace-pre-wrap break-words">{{ $message->text }}</p>

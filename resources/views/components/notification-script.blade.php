@@ -137,11 +137,11 @@
         updateBadge(count);
     }
 
-    function handleUnread(unreadCount, botChatId) {
+    function handleUnread(unreadCount, maxChatId) {
         const count = Number(unreadCount) || 0;
         const increased = lastCount !== null && count > lastCount;
         const activeChatId = window.__fmcActiveChatId || null;
-        const isActiveChat = activeChatId !== null && botChatId !== null && Number(activeChatId) === Number(botChatId);
+        const isActiveChat = activeChatId !== null && maxChatId !== null && Number(activeChatId) === Number(maxChatId);
 
         lastCount = count;
         updateBadge(count);
@@ -157,7 +157,7 @@
     }
 
     function handleMessage(data) {
-        handleUnread(data.unread_count, data.bot_chat_id);
+        handleUnread(data.unread_count, data.max_chat_id);
     }
 
     async function pollUnread() {
@@ -175,7 +175,7 @@
             if (!response.ok) return;
 
             const data = await response.json();
-            handleUnread(data.unread_count ?? 0, data.latest_bot_chat_id ?? null);
+            handleUnread(data.unread_count ?? 0, data.latest_max_chat_id ?? null);
         } catch (e) { /* silent */ }
     }
 

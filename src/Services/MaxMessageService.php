@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Services;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection;
-use GeekCo\FilamentMaxChat\Enums\ChatMessageSender;
-use GeekCo\FilamentMaxChat\Events\ChatMessageCreated;
-use GeekCo\FilamentMaxChat\Models\BotChat;
-use GeekCo\FilamentMaxChat\Models\ChatMessage;
-use GeekCo\LaravelMaxClient\Enums\BotChatStatus;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\FilamentMaxChat\Events\MaxMessageCreated;
+use GeekCo\FilamentMaxChat\Models\MaxChat;
+use GeekCo\FilamentMaxChat\Models\MaxMessage;
+use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\LaravelMaxClient\Support\Logger;
 use GeekCo\MaxPhpClient\Dto\Update;
@@ -18,15 +18,15 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
-class ChatMessageService
+class MaxMessageService
 {
     public function __construct(
-        private readonly ChatAttachmentStore $attachments,
+        private readonly MaxAttachmentStore $attachments,
         private readonly Logger $logger,
     ) {
     }
 
-    public function storeIncoming(Update $update): ?ChatMessage
+    public function storeIncoming(Update $update): ?MaxMessage
     {
         $user = $update->user ?? $update->message?->sender;
         $chatId = $update->chatId ?? $update->message?->recipient->chatId;
@@ -39,15 +39,15 @@ class ChatMessageService
             return null;
         }
 
-        $botChat = $this->upsertChat($user->userId, $chatId, $user);
+        $maxChat = $this->upsertChat($user->userId, $chatId, $user);
 
         $text = $update->message?->body?->text;
         $text ??= $update->message?->body?->caption;
 
         return $this->createMessage(
-            botChat: $botChat,
-            direction: ChatMessageDirection::In,
-            senderType: ChatMessageSender::User,
+            maxChat: $maxChat,
+            direction: MaxMessageDirection::In,
+            senderType: MaxMessageSender::User,
             text: $text,
             messageId: $update->messageId ?? $update->message?->body?->mid,
             attachment: $this->attachments->storeFromIncoming($update->message?->body?->attachments),
@@ -61,16 +61,16 @@ class ChatMessageService
         int $userId,
         int $chatId,
         ?string $text,
-        ChatMessageSender $sender,
+        MaxMessageSender $sender,
         ?int $operatorId = null,
         ?string $messageId = null,
         ?array $attachment = null,
-    ): ?ChatMessage {
-        $botChat = $this->upsertChat($userId, $chatId);
+    ): ?MaxMessage {
+        $maxChat = $this->upsertChat($userId, $chatId);
 
         return $this->createMessage(
-            botChat: $botChat,
-            direction: ChatMessageDirection::Out,
+            maxChat: $maxChat,
+            direction: MaxMessageDirection::Out,
             senderType: $sender,
             text: $text,
             operatorId: $operatorId,
@@ -80,15 +80,15 @@ class ChatMessageService
     }
 
     /**
-     * @return Collection<int, BotChat>
+     * @return Collection<int, MaxChat>
      */
     public function conversations(): Collection
     {
-        return $this->botChatModel()::query()
-            ->where('status', BotChatStatus::Active)
+        return $this->chatModel()::query()
+            ->where('status', MaxChatStatus::Active)
             ->withCount([
                 'messages as unread_count' => static function (Builder $query): void {
-                    $query->where('direction', ChatMessageDirection::In)
+                    $query->where('direction', MaxMessageDirection::In)
                         ->whereNull('read_at');
                 },
             ])
@@ -98,15 +98,33 @@ class ChatMessageService
     }
 
     /**
-     * @return Collection<int, ChatMessage>
+     * По search-поиску `chat_id` (идентификатор чата в MAX) вернуть внутренний
+     * ID записи реестра max_chats. Позволяет открывать диалог по ссылке
+     * с внешних страниц: /chat?chat_id=<id в MAX>.
      */
-    public function messagesFor(int $botChatId, ?int $limit = null): Collection
+    public function resolveInternalIdFromMaxChatId(int $maxChatId): ?int
+    {
+        $model = $this->chatModel();
+
+        /** @var MaxChat|null $chat */
+        $chat = $model::query()
+            ->where('chat_id', $maxChatId)
+            ->orderByDesc('last_activity_at')
+            ->first();
+
+        return $chat?->id;
+    }
+
+    /**
+     * @return Collection<int, MaxMessage>
+     */
+    public function messagesFor(int $maxChatId, ?int $limit = null): Collection
     {
         $limit ??= config()->integer('filament-max-chat.ui.messages_limit', 100);
 
-        return ChatMessage::query()
-            ->where('bot_chat_id', $botChatId)
-            ->with('botChat.maxUser')
+        return MaxMessage::query()
+            ->where('max_chat_id', $maxChatId)
+            ->with('maxChat.maxUser')
             ->latest()
             ->limit($limit)
             ->get()
@@ -115,16 +133,16 @@ class ChatMessageService
     }
 
     /**
-     * @return Collection<int, ChatMessage>
+     * @return Collection<int, MaxMessage>
      */
-    public function messagesBefore(int $botChatId, int $beforeMessageId, ?int $limit = null): Collection
+    public function messagesBefore(int $maxChatId, int $beforeMessageId, ?int $limit = null): Collection
     {
         $limit ??= config()->integer('filament-max-chat.ui.messages_limit', 100);
 
-        return ChatMessage::query()
-            ->where('bot_chat_id', $botChatId)
+        return MaxMessage::query()
+            ->where('max_chat_id', $maxChatId)
             ->where('id', '<', $beforeMessageId)
-            ->with('botChat.maxUser')
+            ->with('maxChat.maxUser')
             ->latest()
             ->limit($limit)
             ->get()
@@ -132,29 +150,29 @@ class ChatMessageService
             ->values();
     }
 
-    public function markRead(int $botChatId): void
+    public function markRead(int $maxChatId): void
     {
-        ChatMessage::query()
-            ->where('bot_chat_id', $botChatId)
-            ->where('direction', ChatMessageDirection::In)
+        MaxMessage::query()
+            ->where('max_chat_id', $maxChatId)
+            ->where('direction', MaxMessageDirection::In)
             ->whereNull('read_at')
             ->update(['read_at' => now()]);
     }
 
     public function totalUnreadCount(): int
     {
-        return (int) ChatMessage::query()
-            ->where('direction', ChatMessageDirection::In)
+        return (int) MaxMessage::query()
+            ->where('direction', MaxMessageDirection::In)
             ->whereNull('read_at')
             ->count();
     }
 
-    public function clearHistory(int $botChatId): int
+    public function clearHistory(int $maxChatId): int
     {
         $sender = app(MaxChatSender::class);
 
-        $messages = ChatMessage::query()
-            ->where('bot_chat_id', $botChatId)
+        $messages = MaxMessage::query()
+            ->where('max_chat_id', $maxChatId)
             ->whereNotNull('message_id')
             ->get();
 
@@ -169,15 +187,37 @@ class ChatMessageService
             }
         }
 
-        return DB::table('chat_messages')
-            ->where('bot_chat_id', $botChatId)
+        return DB::table('max_chat_messages')
+            ->where('max_chat_id', $maxChatId)
             ->delete();
+    }
+
+    /**
+     * Убрать диалог из списка оператора: пометить запись реестра max_chats
+     * статусом Removed. История сообщений сохраняется; список чатов фильтрует
+     * только Active, поэтому диалог исчезает из листа.
+     */
+    public function removeChat(int $maxChatId): bool
+    {
+        $model = $this->chatModel();
+
+        /** @var MaxChat|null $chat */
+        $chat = $model::query()->find($maxChatId);
+
+        if ($chat === null) {
+            return false;
+        }
+
+        $chat->status = MaxChatStatus::Removed;
+        $chat->save();
+
+        return true;
     }
 
     public function deleteMessage(int $chatMessageId): bool
     {
-        /** @var ChatMessage|null $message */
-        $message = ChatMessage::query()->find($chatMessageId);
+        /** @var MaxMessage|null $message */
+        $message = MaxMessage::query()->find($chatMessageId);
 
         if ($message === null) {
             return false;
@@ -197,14 +237,14 @@ class ChatMessageService
         return (bool) $message->delete();
     }
 
-    /** @return class-string<BotChat> */
-    private function botChatModel(): string
+    /** @return class-string<MaxChat> */
+    private function chatModel(): string
     {
-        /** @var class-string<BotChat> */
-        return config()->string('filament-max-chat.bot_chat_model', BotChat::class);
+        /** @var class-string<MaxChat> */
+        return config()->string('filament-max-chat.chat_model', MaxChat::class);
     }
 
-    private function upsertChat(int $userId, int $chatId, ?User $user = null): BotChat
+    private function upsertChat(int $userId, int $chatId, ?User $user = null): MaxChat
     {
         if ($user !== null) {
             MaxUser::query()->updateOrCreate(
@@ -217,16 +257,16 @@ class ChatMessageService
             );
         }
 
-        $model = $this->botChatModel();
+        $model = $this->chatModel();
 
-        /** @var BotChat */
+        /** @var MaxChat */
         return $model::query()->updateOrCreate(
             [
                 'user_id' => $userId,
                 'chat_id' => $chatId,
             ],
             [
-                'status' => BotChatStatus::Active,
+                'status' => MaxChatStatus::Active,
                 'last_activity_at' => now(),
             ],
         );
@@ -236,19 +276,19 @@ class ChatMessageService
      * @param array{type: string, path?: string, name?: string, mime?: string, size?: int}|null $attachment
      */
     private function createMessage(
-        BotChat $botChat,
-        ChatMessageDirection $direction,
-        ChatMessageSender $senderType,
+        MaxChat $maxChat,
+        MaxMessageDirection $direction,
+        MaxMessageSender $senderType,
         ?string $text,
         ?int $operatorId = null,
         ?string $messageId = null,
         ?array $attachment = null,
-    ): ChatMessage {
-        $botChat->forceFill(['last_activity_at' => now()])->save();
+    ): MaxMessage {
+        $maxChat->forceFill(['last_activity_at' => now()])->save();
 
-        $message = $botChat->messages()->create([
-            'user_id' => $botChat->user_id,
-            'chat_id' => $botChat->chat_id,
+        $message = $maxChat->messages()->create([
+            'user_id' => $maxChat->user_id,
+            'chat_id' => $maxChat->chat_id,
             'message_id' => $messageId,
             'direction' => $direction,
             'sender_type' => $senderType,
@@ -257,7 +297,7 @@ class ChatMessageService
             'operator_id' => $operatorId,
         ]);
 
-        ChatMessageCreated::dispatch($message);
+        MaxMessageCreated::dispatch($message);
 
         return $message;
     }

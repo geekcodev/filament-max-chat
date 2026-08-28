@@ -18,9 +18,9 @@ use Symfony\Component\Mime\MimeTypes;
 
 /**
  * Stores chat attachments on a private disk and returns metadata
- * for the chat_messages.attachment column.
+ * for the max_chat_messages.attachment column.
  */
-class ChatAttachmentStore
+class MaxAttachmentStore
 {
     public const int DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
 

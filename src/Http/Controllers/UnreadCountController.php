@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Http\Controllers;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection;
-use GeekCo\FilamentMaxChat\Models\ChatMessage;
-use GeekCo\FilamentMaxChat\Services\ChatMessageService;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
+use GeekCo\FilamentMaxChat\Models\MaxMessage;
+use GeekCo\FilamentMaxChat\Services\MaxMessageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -16,7 +16,7 @@ use Illuminate\Http\Request;
  */
 class UnreadCountController
 {
-    public function __invoke(Request $request, ChatMessageService $service): JsonResponse
+    public function __invoke(Request $request, MaxMessageService $service): JsonResponse
     {
         $user = $request->user();
 
@@ -28,15 +28,15 @@ class UnreadCountController
             return response()->json(['error' => 'Forbidden.'], 403);
         }
 
-        $latestBotChatId = ChatMessage::query()
-            ->where('direction', ChatMessageDirection::In)
+        $latestMaxChatId = MaxMessage::query()
+            ->where('direction', MaxMessageDirection::In)
             ->whereNull('read_at')
             ->latest('id')
-            ->value('bot_chat_id');
+            ->value('max_chat_id');
 
         return response()->json([
             'unread_count' => $service->totalUnreadCount(),
-            'latest_bot_chat_id' => is_int($latestBotChatId) ? $latestBotChatId : null,
+            'latest_max_chat_id' => is_int($latestMaxChatId) ? $latestMaxChatId : null,
         ]);
     }
 }

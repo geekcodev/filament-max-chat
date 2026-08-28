@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Http\Controllers;
 
-use GeekCo\FilamentMaxChat\Models\ChatMessage;
+use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -13,9 +13,9 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Serves chat attachments from private storage (only for staff with view permission).
  */
-class ChatAttachmentController
+class MaxAttachmentController
 {
-    public function __invoke(Request $request, ChatMessage $message): Response
+    public function __invoke(Request $request, MaxMessage $message): Response
     {
         $user = $request->user();
 
