@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Tests\Unit\Models;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection;
-use GeekCo\FilamentMaxChat\Enums\ChatMessageSender;
-use GeekCo\FilamentMaxChat\Models\BotChat;
-use GeekCo\FilamentMaxChat\Models\ChatMessage;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\FilamentMaxChat\Models\MaxChat;
+use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
-use GeekCo\LaravelMaxClient\Enums\BotChatStatus;
+use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
-class BotChatTest extends TestCase
+class MaxChatTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -27,8 +27,8 @@ class BotChatTest extends TestCase
     public function test_unread_count_counts_incoming_unread_messages(): void
     {
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, 'First');
-        $this->createMessage($chat, ChatMessageDirection::In, 'Second');
+        $this->createMessage($chat, MaxMessageDirection::In, 'First');
+        $this->createMessage($chat, MaxMessageDirection::In, 'Second');
 
         $this->assertSame(2, $chat->unreadCount());
     }
@@ -36,9 +36,9 @@ class BotChatTest extends TestCase
     public function test_unread_count_excludes_read_messages(): void
     {
         $chat = $this->createChat();
-        $message = $this->createMessage($chat, ChatMessageDirection::In, 'Read');
+        $message = $this->createMessage($chat, MaxMessageDirection::In, 'Read');
 
-        ChatMessage::query()->where('id', $message->id)->update(['read_at' => now()]);
+        MaxMessage::query()->where('id', $message->id)->update(['read_at' => now()]);
 
         $this->assertSame(0, $chat->unreadCount());
     }
@@ -46,8 +46,8 @@ class BotChatTest extends TestCase
     public function test_unread_count_excludes_outgoing_messages(): void
     {
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, 'Incoming');
-        $this->createMessage($chat, ChatMessageDirection::Out, 'Outgoing');
+        $this->createMessage($chat, MaxMessageDirection::In, 'Incoming');
+        $this->createMessage($chat, MaxMessageDirection::Out, 'Outgoing');
 
         $this->assertSame(1, $chat->unreadCount());
     }
@@ -63,39 +63,39 @@ class BotChatTest extends TestCase
     {
         MaxUser::query()->where('user_id', 999)->delete();
 
-        $chat = BotChat::query()->create([
+        $chat = MaxChat::query()->create([
             'user_id' => 999,
             'chat_id' => 333,
-            'status' => BotChatStatus::Active,
+            'status' => MaxChatStatus::Active,
             'last_activity_at' => now(),
         ]);
 
         $this->assertStringContainsString('999', $chat->conversationName());
     }
 
-    private function createChat(): BotChat
+    private function createChat(): MaxChat
     {
         MaxUser::query()->updateOrCreate(
             ['user_id' => 111],
             ['first_name' => 'Иван', 'last_name' => 'Петров'],
         );
 
-        return BotChat::query()->create([
+        return MaxChat::query()->create([
             'user_id' => 111,
             'chat_id' => 222,
-            'status' => BotChatStatus::Active,
+            'status' => MaxChatStatus::Active,
             'last_activity_at' => now(),
         ]);
     }
 
-    private function createMessage(BotChat $chat, ChatMessageDirection $direction, ?string $text): ChatMessage
+    private function createMessage(MaxChat $chat, MaxMessageDirection $direction, ?string $text): MaxMessage
     {
-        return ChatMessage::query()->create([
-            'bot_chat_id' => $chat->id,
+        return MaxMessage::query()->create([
+            'max_chat_id' => $chat->id,
             'user_id' => $chat->user_id,
             'chat_id' => $chat->chat_id,
             'direction' => $direction,
-            'sender_type' => ChatMessageSender::User,
+            'sender_type' => MaxMessageSender::User,
             'text' => $text,
         ]);
     }

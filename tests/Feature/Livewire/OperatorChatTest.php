@@ -4,20 +4,22 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Tests\Feature\Livewire;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection;
-use GeekCo\FilamentMaxChat\Enums\ChatMessageSender;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\FilamentMaxChat\Jobs\RefreshChatProfilesJob;
 use GeekCo\FilamentMaxChat\Livewire\OperatorChat;
-use GeekCo\FilamentMaxChat\Models\BotChat;
-use GeekCo\FilamentMaxChat\Models\ChatMessage;
+use GeekCo\FilamentMaxChat\Models\MaxChat;
+use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Services\MaxChatSender;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
-use GeekCo\LaravelMaxClient\Enums\BotChatStatus;
+use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Mockery;
@@ -45,7 +47,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Привет!');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Привет!');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class)
@@ -57,7 +59,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $incoming = $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+        $incoming = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Вопрос');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
@@ -68,6 +70,71 @@ class OperatorChatTest extends TestCase
 
         $this->assertNotNull($fresh);
         $this->assertNotNull($fresh->read_at);
+    }
+
+    public function test_mount_opens_chat_by_max_chat_id_query_param(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Открыт по chat_id');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSet('activeChatId', $chat->id)
+            ->assertSee('Открыт по chat_id');
+    }
+
+    public function test_mount_ignores_unknown_max_chat_id(): void
+    {
+        $staff = $this->createStaff();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => 999999])
+            ->assertSet('activeChatId', null);
+    }
+
+    public function test_remove_chat_marks_chat_removed_and_resets_state(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Вопрос');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->call('removeChat')
+            ->assertSet('activeChatId', null);
+
+        $fresh = $chat->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertSame(MaxChatStatus::Removed, $fresh->status);
+
+        $this->assertDatabaseHas('max_chat_messages', ['max_chat_id' => $chat->id]);
+    }
+
+    public function test_select_chat_dispatches_profile_refresh_when_avatar_empty(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->call('selectChat', $chat->id);
+
+        Queue::assertPushed(RefreshChatProfilesJob::class);
+    }
+
+    public function test_select_chat_does_not_dispatch_profile_refresh_when_disabled(): void
+    {
+        config()->set('filament-max-chat.profile.enabled', false);
+
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->call('selectChat', $chat->id);
+
+        Queue::assertNotPushed(RefreshChatProfilesJob::class);
     }
 
     public function test_reply_sends_to_max_and_stores_outgoing_message(): void
@@ -90,10 +157,10 @@ class OperatorChatTest extends TestCase
             ->assertHasNoErrors()
             ->assertSet('reply', '');
 
-        $this->assertDatabaseHas('chat_messages', [
-            'bot_chat_id' => $chat->id,
-            'direction' => ChatMessageDirection::Out->value,
-            'sender_type' => ChatMessageSender::Operator->value,
+        $this->assertDatabaseHas('max_chat_messages', [
+            'max_chat_id' => $chat->id,
+            'direction' => MaxMessageDirection::Out->value,
+            'sender_type' => MaxMessageSender::Operator->value,
             'text' => 'Привет!',
             'operator_id' => $staff->id,
         ]);
@@ -124,9 +191,9 @@ class OperatorChatTest extends TestCase
             ->call('sendReply')
             ->assertHasErrors(['reply' => 'required']);
 
-        $this->assertDatabaseMissing('chat_messages', [
-            'bot_chat_id' => $chat->id,
-            'direction' => ChatMessageDirection::Out->value,
+        $this->assertDatabaseMissing('max_chat_messages', [
+            'max_chat_id' => $chat->id,
+            'direction' => MaxMessageDirection::Out->value,
         ]);
     }
 
@@ -146,9 +213,9 @@ class OperatorChatTest extends TestCase
             ->call('sendReply')
             ->assertHasErrors(['reply']);
 
-        $this->assertDatabaseMissing('chat_messages', [
-            'bot_chat_id' => $chat->id,
-            'direction' => ChatMessageDirection::Out->value,
+        $this->assertDatabaseMissing('max_chat_messages', [
+            'max_chat_id' => $chat->id,
+            'direction' => MaxMessageDirection::Out->value,
         ]);
     }
 
@@ -156,7 +223,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $incoming = $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Пока');
+        $incoming = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Пока');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
@@ -172,7 +239,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Вопрос');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class)
@@ -184,7 +251,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Вопрос');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
@@ -196,7 +263,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $message = $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+        $message = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Вопрос');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
@@ -208,7 +275,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Вопрос');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Вопрос');
 
         $this->mock(MaxChatSender::class)->shouldReceive('deleteMessage')->zeroOrMoreTimes();
 
@@ -243,7 +310,7 @@ class OperatorChatTest extends TestCase
             ->assertSet('reply', '')
             ->assertSet('attachment', null);
 
-        $message = ChatMessage::query()->where('direction', ChatMessageDirection::Out->value)->firstOrFail();
+        $message = MaxMessage::query()->where('direction', MaxMessageDirection::Out->value)->firstOrFail();
 
         $attachment = $message->attachment;
         $this->assertIsArray($attachment);
@@ -279,7 +346,7 @@ class OperatorChatTest extends TestCase
             ->call('sendReply')
             ->assertHasNoErrors();
 
-        $attachment = ChatMessage::query()->where('direction', ChatMessageDirection::Out->value)->firstOrFail()->attachment;
+        $attachment = MaxMessage::query()->where('direction', MaxMessageDirection::Out->value)->firstOrFail()->attachment;
         $this->assertIsArray($attachment);
         $this->assertSame('image', $attachment['type']);
     }
@@ -299,9 +366,9 @@ class OperatorChatTest extends TestCase
             ->call('sendReply')
             ->assertHasErrors();
 
-        $this->assertDatabaseMissing('chat_messages', [
-            'bot_chat_id' => $chat->id,
-            'direction' => ChatMessageDirection::Out->value,
+        $this->assertDatabaseMissing('max_chat_messages', [
+            'max_chat_id' => $chat->id,
+            'direction' => MaxMessageDirection::Out->value,
         ]);
     }
 
@@ -309,7 +376,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Сообщение');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
 
         $this->mock(MaxChatSender::class)->shouldReceive('deleteMessage')->zeroOrMoreTimes();
 
@@ -318,48 +385,48 @@ class OperatorChatTest extends TestCase
             ->call('clearChat')
             ->assertSet('messages', new \Illuminate\Support\Collection());
 
-        $this->assertDatabaseCount('chat_messages', 0);
+        $this->assertDatabaseCount('max_chat_messages', 0);
     }
 
     public function test_clear_chat_requires_answer_permission(): void
     {
         $user = $this->createUser(canView: true);
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Сообщение');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
 
         Livewire::actingAs($user)
             ->test(OperatorChat::class, ['chat' => $chat->id])
             ->call('clearChat')
             ->assertForbidden();
 
-        $this->assertDatabaseCount('chat_messages', 1);
+        $this->assertDatabaseCount('max_chat_messages', 1);
     }
 
     public function test_delete_message_removes_from_db_and_collection(): void
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $message = $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Удаляемое');
+        $message = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Удаляемое');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
             ->call('deleteMessage', $message->id);
 
-        $this->assertDatabaseMissing('chat_messages', ['id' => $message->id]);
+        $this->assertDatabaseMissing('max_chat_messages', ['id' => $message->id]);
     }
 
     public function test_delete_message_requires_answer_permission(): void
     {
         $user = $this->createUser(canView: true);
         $chat = $this->createChat();
-        $message = $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Сообщение');
+        $message = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
 
         Livewire::actingAs($user)
             ->test(OperatorChat::class, ['chat' => $chat->id])
             ->call('deleteMessage', $message->id)
             ->assertForbidden();
 
-        $this->assertDatabaseCount('chat_messages', 1);
+        $this->assertDatabaseCount('max_chat_messages', 1);
     }
 
     public function test_load_more_messages_prepends_older(): void
@@ -370,7 +437,7 @@ class OperatorChatTest extends TestCase
         $chat = $this->createChat();
 
         for ($i = 1; $i <= 5; $i++) {
-            $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, "Message {$i}");
+            $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, "Message {$i}");
         }
 
         Livewire::actingAs($staff)
@@ -383,7 +450,7 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Only');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Only');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
@@ -417,13 +484,13 @@ class OperatorChatTest extends TestCase
 
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Старое');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Старое');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
             ->assertSee('Старое');
 
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Новое');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Новое');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
@@ -442,7 +509,7 @@ class OperatorChatTest extends TestCase
             ->test(OperatorChat::class, ['chat' => $chat->id])
             ->assertDontSee('Привет');
 
-        $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Привет');
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Привет');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
@@ -549,15 +616,15 @@ class OperatorChatTest extends TestCase
     {
         $staff = $this->createStaff();
         $chat = $this->createChat();
-        $msg1 = $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Первое');
-        $msg2 = $this->createMessage($chat, ChatMessageDirection::In, ChatMessageSender::User, 'Второе');
+        $msg1 = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Первое');
+        $msg2 = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Второе');
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
             ->call('deleteMessage', $msg1->id);
 
-        $this->assertDatabaseMissing('chat_messages', ['id' => $msg1->id]);
-        $this->assertDatabaseHas('chat_messages', ['id' => $msg2->id]);
+        $this->assertDatabaseMissing('max_chat_messages', ['id' => $msg1->id]);
+        $this->assertDatabaseHas('max_chat_messages', ['id' => $msg2->id]);
     }
 
     public function test_updated_attachment_validates(): void
@@ -586,29 +653,29 @@ class OperatorChatTest extends TestCase
         return $this->createUser(canView: true, canAnswer: true);
     }
 
-    private function createChat(): BotChat
+    private function createChat(): MaxChat
     {
         MaxUser::query()->updateOrCreate(
             ['user_id' => 111],
             ['first_name' => 'Иван'],
         );
 
-        return BotChat::query()->create([
+        return MaxChat::query()->create([
             'user_id' => 111,
             'chat_id' => 222,
-            'status' => BotChatStatus::Active,
+            'status' => MaxChatStatus::Active,
             'last_activity_at' => now(),
         ]);
     }
 
     private function createMessage(
-        BotChat $chat,
-        ChatMessageDirection $direction,
-        ChatMessageSender $sender,
+        MaxChat $chat,
+        MaxMessageDirection $direction,
+        MaxMessageSender $sender,
         ?string $text,
-    ): ChatMessage {
-        return ChatMessage::query()->create([
-            'bot_chat_id' => $chat->id,
+    ): MaxMessage {
+        return MaxMessage::query()->create([
+            'max_chat_id' => $chat->id,
             'user_id' => $chat->user_id,
             'chat_id' => $chat->chat_id,
             'direction' => $direction,

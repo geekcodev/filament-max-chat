@@ -7,7 +7,7 @@ namespace GeekCo\FilamentMaxChat\Pages;
 use BackedEnum;
 use Filament\Pages\Page;
 use Filament\Panel;
-use GeekCo\FilamentMaxChat\Services\ChatMessageService;
+use GeekCo\FilamentMaxChat\Services\MaxMessageService;
 use Illuminate\Contracts\Support\Htmlable;
 
 class OperatorChat extends Page
@@ -61,7 +61,7 @@ class OperatorChat extends Page
             return null;
         }
 
-        $count = app(ChatMessageService::class)->totalUnreadCount();
+        $count = app(MaxMessageService::class)->totalUnreadCount();
 
         return $count > 0 ? (string) $count : null;
     }

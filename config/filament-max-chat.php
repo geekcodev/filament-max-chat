@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use GeekCo\FilamentMaxChat\Models\BotChat;
+use GeekCo\FilamentMaxChat\Models\MaxChat;
 
 return [
 
@@ -38,15 +38,36 @@ return [
     | Модели
     |--------------------------------------------------------------------------
     |
-    | bot_chat_model — расширение BotChat из laravel-max-client со связями чата;
-    | переопределяйте своим подклассом при необходимости (таблица max_bot_chats).
+    | chat_model — расширение MaxChat из laravel-max-client со связями чата;
+    | переопределяйте своим подклассом при необходимости (таблица max_chats).
     | user_model — модель оператора (персонала) для связи operator_id.
     |
     */
 
-    'bot_chat_model' => BotChat::class,
+    'chat_model' => MaxChat::class,
 
     'user_model' => env('FILAMENT_MAX_CHAT_USER_MODEL', \Illuminate\Foundation\Auth\User::class),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Профиль/аватар пользователя MAX
+    |--------------------------------------------------------------------------
+    |
+    | Ленивая фоновая подгрузка профиля (аватара) через MaxUserProfileService
+    | (laravel-max-client, getChatMembers) — аватар в апдейтах не приходит.
+    | prefetch: on_open (при открытии чата) | on_list (для списка бесед) | both.
+    | cache_ttl — сколько (сек) не перезапрашивать профиль одного пользователя
+    | (троттлинг попыток, чтобы не дёргать API на каждый poll).
+    | refresh_existing — обновлять ли профиль, если аватар уже заполнен.
+    |
+    */
+
+    'profile' => [
+        'enabled' => filter_var(env('FILAMENT_MAX_CHAT_PROFILE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'prefetch' => env('FILAMENT_MAX_CHAT_PROFILE_PREFETCH', 'both'),
+        'cache_ttl' => (int) env('FILAMENT_MAX_CHAT_PROFILE_CACHE_TTL', 86400),
+        'refresh_existing' => filter_var(env('FILAMENT_MAX_CHAT_PROFILE_REFRESH_EXISTING', false), FILTER_VALIDATE_BOOLEAN),
+    ],
 
     /*
     |--------------------------------------------------------------------------

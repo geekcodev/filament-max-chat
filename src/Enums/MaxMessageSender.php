@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Enums;
 
-enum ChatMessageSender: string
+enum MaxMessageSender: string
 {
     case User = 'user';
     case Operator = 'operator';

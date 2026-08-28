@@ -8,12 +8,12 @@
 ## 1. О проекте
 
 - **Что это.** Filament-плагин **`geekcodev/filament-max-chat`** — **чат оператора** с пользователями MAX-мессенджера
-  внутри Filament-панели. Строится поверх `geekcodev/laravel-max-client` (реестр чатов `max_bot_chats`/`max_users`,
+  внутри Filament-панели. Строится поверх `geekcodev/laravel-max-client` (реестр чатов `max_chats`/`max_users`,
   вебхук-доставка апдейтов) и ядра `geekcodev/max-php-client` (Bot API MAX). Репозиторий/рабочая папка —
   `filament-max-chat`.
 - **Принцип.** Плагин — только UI и история переписки: страница `/admin/chat`, Livewire-компонент, хранение
-  `chat_messages`, приватное хранение вложений, broadcast-событие. Бизнес-обработка входящих апдейтов MAX остаётся в
-  host-приложении — оно вызывает `ChatMessageService::storeIncoming()`. Не дублировать механизмы laravel-max-client.
+  `max_chat_messages`, приватное хранение вложений, broadcast-событие. Бизнес-обработка входящих апдейтов MAX остаётся в
+  host-приложении — оно вызывает `MaxMessageService::storeIncoming()`. Не дублировать механизмы laravel-max-client.
 - **Лицензия.** MIT (файл `LICENSE`).
 - **Язык.** Рабочий язык общения с пользователем — **русский**; подписи UI — через lang-файлы (`lang/ru`, `lang/en`).
 
@@ -42,7 +42,7 @@
 
 ```
 config/filament-max-chat.php       publishable-конфиг (--tag=filament-max-chat-config)
-database/migrations/               миграция chat_messages (грузится автоматически из пакета)
+database/migrations/               миграция max_chat_messages (грузится автоматически из пакета)
 lang/{ru,en}/chat.php              подписи UI страницы чата
 resources/views/pages/             Filament-страница OperatorChat
 resources/views/components/        Blade-компонент Livewire-чата
@@ -52,20 +52,20 @@ src/
   Pages/OperatorChat.php              страница панели (доступ permissions.view)
   Livewire/OperatorChat.php           состояние чата: диалоги, лента, ответ, вложения (алиас filament-max-chat)
   Services/
-    ChatMessageService.php            история: storeIncoming/storeOutgoing/conversations/messagesFor/markRead
+    MaxMessageService.php            история: storeIncoming/storeOutgoing/conversations/messagesFor/markRead
     MaxChatSender.php                 отправка в MAX: sendFormatted (HTML) / sendAttachment (uploadMedia)
-    ChatAttachmentStore.php           приватное хранение вложений (метаданные в JSON-колонке attachment)
+    MaxAttachmentStore.php            приватное хранение вложений (метаданные в JSON-колонке attachment)
   Support/TextSanitizer.php           санитизация HTML под whitelist тегов MAX + toMaxHtml()
-  Models/BotChat.php                  расширение пакетной модели клиента (связи messages/lastMessage/maxUser)
-  Models/ChatMessage.php              модель chat_messages
-  Events/ChatMessageCreated.php       ShouldBroadcast в private-канал chat.channel
-  Enums/{ChatMessageDirection,ChatMessageSender}.php
-  Http/Controllers/ChatAttachmentController.php  авторизованная отдача вложений
+  Models/MaxChat.php                  расширение пакетной модели клиента (связи messages/lastMessage/maxUser)
+  Models/MaxMessage.php              модель max_chat_messages
+  Events/MaxMessageCreated.php       ShouldBroadcast в private-канал chat.channel
+  Enums/{MaxMessageDirection,MaxMessageSender}.php
+  Http/Controllers/MaxAttachmentController.php  авторизованная отдача вложений
   Http/Controllers/UnreadCountController.php     JSON-счётчик непрочитанного (HTTP-poll уведомлений на всех страницах)
 tests/                             PHPUnit + Orchestra Testbench
   Fixtures/                           AdminPanelProvider, TestUser, миграция users, Gate chat.view/chat.answer
-  Unit/                               TextSanitizer, ChatAttachmentStore, ChatMessageService
-  Feature/                            Livewire OperatorChat, ChatAttachmentController
+  Unit/                               TextSanitizer, MaxAttachmentStore, MaxMessageService
+  Feature/                            Livewire OperatorChat, MaxAttachmentController
 Dockerfile                         PHP 8.4 (ghcr.io/geekcodev/php) + опциональный Xdebug
 docker-compose.yml                 сервис app, user 1000:1000, volume ./
 docker/config/usr/local/etc/php/conf.d/40-custom.ini  PHP-конфиг dev-контейнера (memory_limit=1G)
@@ -84,20 +84,20 @@ phpstan.neon                       level max (Larastan), configDirectories → c
   `permissions.view` (`chat.view`), отправка ответов — `permissions.answer` (`chat.answer`); права проверяются строкой
   `$user->can(...)` — совместимо со spatie/laravel-permission и Gate.
 - **Входящие сообщения**: host-приложение слушает `MaxUpdateReceived` (laravel-max-client) и вызывает
-  `ChatMessageService::storeIncoming(Update)` — создаёт `chat_messages`, обновляет имя диалога, скачивает медиа во
-  приватный диск, эмитит `ChatMessageCreated`.
+  `MaxMessageService::storeIncoming(Update)` — создаёт `max_chat_messages`, обновляет имя диалога, скачивает медиа во
+  приватный диск, эмитит `MaxMessageCreated`.
 - **Исходящие**: `MaxChatSender` — единственная точка отправки (`sendFormatted` с `format=html` после
   `TextSanitizer`; `sendAttachment` — `uploadMedia` + `sendFile`). Прямые вызовы ApiClient из Livewire запрещены.
 - **Вложения**: метаданные (type/path/name/mime/size) — JSON-колонка `attachment`; файлы на диске `attachments.disk`
-  вне public; отдача только через `GET route.uri` с правом `permissions.view` (`ChatAttachmentController`).
-- **Real-time**: `ChatMessageCreated` (broadcastAs `chat-message.created`) в private-канал `broadcast_channel`;
-  клиентская часть — `window.Echo`, фолбэк — `wire:poll` (интервал `ui.poll_seconds`). Глобальный счётчик
-  непрочитанного на всех страницах панели: Echo + HTTP-poll (`GET route.unread_count_uri` →
-  `UnreadCountController`, JSON `{unread_count, latest_bot_chat_id}`, интервал `notifications.poll_interval_seconds`).
-- **Переопределение моделей**: `bot_chat_model` — подкласс пакетного `Models\BotChat` (та же таблица `max_bot_chats`);
+  вне public; отдача только через `GET route.uri` с правом `permissions.view` (`MaxAttachmentController`).
+- **Real-time**: `MaxMessageCreated` (broadcastAs `chat-message.created`) в private-канал `broadcast_channel`;
+  клиентская часть — `window.Echo`, фолбэк — `wire:poll` (интервал `ui.poll_seconds`). Глобальный счётчик непрочитанного
+  на всех страницах панели: Echo + HTTP-poll (`GET route.unread_count_uri` →
+  `UnreadCountController`, JSON `{unread_count, latest_max_chat_id}`, интервал `notifications.poll_interval_seconds`).
+- **Переопределение моделей**: `chat_model` — подкласс пакетного `Models\MaxChat` (таблица `max_chats`);
   `user_model` — модель оператора для связи `operator_id`.
-- **Миграция** `0001_01_01_000001_create_chat_messages_table.php` грузится автоматически из пакета; FK на
-  `max_bot_chats` требует опубликованных миграций laravel-max-client (см. README «Требования»).
+- **Миграция** `0001_01_01_000001_create_max_chat_messages_table.php` грузится автоматически из пакета; FK на
+  `max_chats` требует опубликованных миграций laravel-max-client (см. README «Требования»).
 
 ### Соглашения
 

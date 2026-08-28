@@ -4,18 +4,18 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Tests\Feature;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection;
-use GeekCo\FilamentMaxChat\Enums\ChatMessageSender;
-use GeekCo\FilamentMaxChat\Models\BotChat;
-use GeekCo\FilamentMaxChat\Models\ChatMessage;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\FilamentMaxChat\Models\MaxChat;
+use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
-use GeekCo\LaravelMaxClient\Enums\BotChatStatus;
+use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 
-class ChatAttachmentControllerTest extends TestCase
+class MaxAttachmentControllerTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -95,23 +95,23 @@ class ChatAttachmentControllerTest extends TestCase
     /**
      * @param  array<string, mixed>|null  $attachment
      */
-    private function createMessage(?array $attachment = null): ChatMessage
+    private function createMessage(?array $attachment = null): MaxMessage
     {
         MaxUser::query()->updateOrCreate(['user_id' => 111], ['first_name' => 'Иван']);
 
-        $chat = BotChat::query()->create([
+        $chat = MaxChat::query()->create([
             'user_id' => 111,
             'chat_id' => 222,
-            'status' => BotChatStatus::Active,
+            'status' => MaxChatStatus::Active,
             'last_activity_at' => now(),
         ]);
 
-        return ChatMessage::query()->create([
-            'bot_chat_id' => $chat->id,
+        return MaxMessage::query()->create([
+            'max_chat_id' => $chat->id,
             'user_id' => $chat->user_id,
             'chat_id' => $chat->chat_id,
-            'direction' => ChatMessageDirection::In,
-            'sender_type' => ChatMessageSender::User,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
             'text' => null,
             'attachment' => $attachment,
         ]);

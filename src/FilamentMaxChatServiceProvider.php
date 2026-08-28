@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat;
 
-use GeekCo\FilamentMaxChat\Http\Controllers\ChatAttachmentController;
+use GeekCo\FilamentMaxChat\Http\Controllers\MaxAttachmentController;
 use GeekCo\FilamentMaxChat\Http\Controllers\UnreadCountController;
 use GeekCo\FilamentMaxChat\Livewire\OperatorChat as OperatorChatComponent;
 use Illuminate\Support\Facades\Route;
@@ -56,7 +56,7 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
 
         Route::get(
             (string) config()->string('filament-max-chat.route.uri'),
-            ChatAttachmentController::class,
+            MaxAttachmentController::class,
         )
             ->middleware('web')
             ->name('filament-max-chat.attachment');

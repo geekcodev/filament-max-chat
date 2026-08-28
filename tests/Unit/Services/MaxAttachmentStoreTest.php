@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Tests\Unit\Services;
 
-use GeekCo\FilamentMaxChat\Services\ChatAttachmentStore;
+use GeekCo\FilamentMaxChat\Services\MaxAttachmentStore;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\MaxPhpClient\Dto\Attachment;
 use GeekCo\MaxPhpClient\Dto\FileAttachmentPayload;
@@ -15,7 +15,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
-class ChatAttachmentStoreTest extends TestCase
+class MaxAttachmentStoreTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -26,7 +26,7 @@ class ChatAttachmentStoreTest extends TestCase
             'cdn.max.ru/*' => Http::response('png-bytes', 200, ['Content-Type' => 'image/png']),
         ]);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::Image,
                 payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/photo.png'),
@@ -50,7 +50,7 @@ class ChatAttachmentStoreTest extends TestCase
             'cdn.max.ru/*' => Http::response('nope', 404),
         ]);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::Image,
                 payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/missing.jpg'),
@@ -70,7 +70,7 @@ class ChatAttachmentStoreTest extends TestCase
         ]);
         config()->set('filament-max-chat.attachments.max_bytes', 10);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::Image,
                 payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/big.jpg'),
@@ -88,7 +88,7 @@ class ChatAttachmentStoreTest extends TestCase
             'cdn.max.ru/*' => Http::response('doc-bytes', 200, ['Content-Type' => 'application/octet-stream']),
         ]);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::File,
                 payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/media/b2f/report.pdf'),
@@ -109,7 +109,7 @@ class ChatAttachmentStoreTest extends TestCase
             'fd.oneme.ru/*' => Http::response("%PDF-1.4\n%fake-pdf-content", 200, ['Content-Type' => 'application/octet-stream']),
         ]);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::File,
                 payload: new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?rq=abc&expires=123'),
@@ -130,7 +130,7 @@ class ChatAttachmentStoreTest extends TestCase
         Storage::fake('local');
         Http::fake();
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(type: AttachmentType::Video, payload: []),
         ]);
 
@@ -142,10 +142,10 @@ class ChatAttachmentStoreTest extends TestCase
 
     public function test_no_media_attachments_returns_null(): void
     {
-        $this->assertNull(app(ChatAttachmentStore::class)->storeFromIncoming([
+        $this->assertNull(app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(type: AttachmentType::InlineKeyboard, payload: []),
         ]));
-        $this->assertNull(app(ChatAttachmentStore::class)->storeFromIncoming(null));
+        $this->assertNull(app(MaxAttachmentStore::class)->storeFromIncoming(null));
     }
 
     public function test_store_from_upload_persists_file_with_original_name(): void
@@ -154,7 +154,7 @@ class ChatAttachmentStoreTest extends TestCase
 
         $uploaded = UploadedFile::fake()->create('report.pdf', 10, 'application/pdf');
 
-        $meta = app(ChatAttachmentStore::class)->storeFromUpload($uploaded);
+        $meta = app(MaxAttachmentStore::class)->storeFromUpload($uploaded);
 
         $this->assertSame('file', $meta['type']);
         $this->assertSame('report.pdf', $meta['name']);
@@ -168,7 +168,7 @@ class ChatAttachmentStoreTest extends TestCase
 
         $uploaded = UploadedFile::fake()->create('photo.jpg', 10, 'image/jpeg');
 
-        $meta = app(ChatAttachmentStore::class)->storeFromUpload($uploaded);
+        $meta = app(MaxAttachmentStore::class)->storeFromUpload($uploaded);
 
         $this->assertSame('image', $meta['type']);
         $this->assertSame('image/jpeg', $meta['mime']);
@@ -180,7 +180,7 @@ class ChatAttachmentStoreTest extends TestCase
 
         $uploaded = UploadedFile::fake()->create('clip.mp4', 10, 'video/mp4');
 
-        $meta = app(ChatAttachmentStore::class)->storeFromUpload($uploaded);
+        $meta = app(MaxAttachmentStore::class)->storeFromUpload($uploaded);
 
         $this->assertSame('video', $meta['type']);
     }
@@ -191,7 +191,7 @@ class ChatAttachmentStoreTest extends TestCase
 
         $uploaded = UploadedFile::fake()->create('voice.mp3', 10, 'audio/mpeg');
 
-        $meta = app(ChatAttachmentStore::class)->storeFromUpload($uploaded);
+        $meta = app(MaxAttachmentStore::class)->storeFromUpload($uploaded);
 
         $this->assertSame('audio', $meta['type']);
     }
@@ -202,7 +202,7 @@ class ChatAttachmentStoreTest extends TestCase
 
         $uploaded = UploadedFile::fake()->create('photo.jpg', 10, 'image/png');
 
-        $meta = app(ChatAttachmentStore::class)->storeFromUpload($uploaded);
+        $meta = app(MaxAttachmentStore::class)->storeFromUpload($uploaded);
 
         $this->assertStringEndsWith('.jpg', $meta['path']);
     }
@@ -213,7 +213,7 @@ class ChatAttachmentStoreTest extends TestCase
 
         $uploaded = UploadedFile::fake()->createWithContent('data', (string) base64_decode('AAAA', true));
 
-        $meta = app(ChatAttachmentStore::class)->storeFromUpload($uploaded);
+        $meta = app(MaxAttachmentStore::class)->storeFromUpload($uploaded);
 
         $this->assertSame('file', $meta['type']);
     }
@@ -225,7 +225,7 @@ class ChatAttachmentStoreTest extends TestCase
             'cdn.max.ru/*' => Http::response('audio-bytes', 200, ['Content-Type' => 'audio/mpeg']),
         ]);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::Audio,
                 payload: new \GeekCo\MaxPhpClient\Dto\AudioAttachmentPayload(url: 'https://cdn.max.ru/voice.mp3'),
@@ -245,7 +245,7 @@ class ChatAttachmentStoreTest extends TestCase
             'cdn.max.ru/*' => Http::response('file-bytes', 200, ['Content-Type' => 'application/octet-stream']),
         ]);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::File,
                 payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/data.csv'),
@@ -262,7 +262,7 @@ class ChatAttachmentStoreTest extends TestCase
     {
         Storage::fake('local');
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::Image,
                 payload: new ImageAttachmentPayload(url: ''),
@@ -279,7 +279,7 @@ class ChatAttachmentStoreTest extends TestCase
         Storage::fake('local');
         Http::fake(fn () => throw new \RuntimeException('network error'));
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::File,
                 payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/file.bin'),
@@ -298,7 +298,7 @@ class ChatAttachmentStoreTest extends TestCase
             'fd.oneme.ru/*' => Http::response('content', 200, ['Content-Type' => 'application/octet-stream']),
         ]);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::File,
                 payload: new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?filename=report.pdf'),
@@ -316,7 +316,7 @@ class ChatAttachmentStoreTest extends TestCase
             'cdn.max.ru/*' => Http::response('bytes', 200, ['Content-Type' => 'application/x-mystery']),
         ]);
 
-        $meta = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(
                 type: AttachmentType::Image,
                 payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/noext'),
@@ -330,7 +330,7 @@ class ChatAttachmentStoreTest extends TestCase
 
     public function test_store_from_incoming_skips_non_attachment_items(): void
     {
-        $result = app(ChatAttachmentStore::class)->storeFromIncoming([
+        $result = app(MaxAttachmentStore::class)->storeFromIncoming([
             'not-an-attachment',
             null,
         ]);

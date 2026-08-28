@@ -9,6 +9,7 @@ use GeekCo\FilamentMaxChat\Tests\Fixtures\AdminPanelProvider;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
 use GeekCo\LaravelMaxClient\MaxServiceProvider;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Queue;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
@@ -19,6 +20,10 @@ abstract class TestCase extends Orchestra
 
         $this->loadMigrationsFrom(__DIR__.'/../vendor/geekcodev/laravel-max-client/database/migrations');
         $this->loadMigrationsFrom(__DIR__.'/Fixtures/Migrations');
+
+        // Фоновая подгрузка профиля диспатчит RefreshChatProfilesJob; в тестах
+        // он не должен выполняться (sync), иначе уйдёт в реальный API.
+        Queue::fake();
 
         Gate::define(
             'chat.view',

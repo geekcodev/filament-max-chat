@@ -4,19 +4,19 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Models;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection;
-use GeekCo\FilamentMaxChat\Enums\ChatMessageSender;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * @property int $id
- * @property int $bot_chat_id
+ * @property int $max_chat_id
  * @property int $user_id
  * @property int|null $chat_id
  * @property string|null $message_id
- * @property ChatMessageDirection $direction
- * @property ChatMessageSender $sender_type
+ * @property MaxMessageDirection $direction
+ * @property MaxMessageSender $sender_type
  * @property string|null $text
  * @property array{type: string, path?: string, name?: string, mime?: string, size?: int}|null $attachment
  * @property int|null $operator_id
@@ -24,12 +24,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
-class ChatMessage extends Model
+class MaxMessage extends Model
 {
-    protected $table = 'chat_messages';
+    protected $table = 'max_chat_messages';
 
     protected $fillable = [
-        'bot_chat_id',
+        'max_chat_id',
         'user_id',
         'chat_id',
         'message_id',
@@ -44,11 +44,11 @@ class ChatMessage extends Model
     protected function casts(): array
     {
         return [
-            'bot_chat_id' => 'integer',
+            'max_chat_id' => 'integer',
             'user_id' => 'integer',
             'chat_id' => 'integer',
-            'direction' => ChatMessageDirection::class,
-            'sender_type' => ChatMessageSender::class,
+            'direction' => MaxMessageDirection::class,
+            'sender_type' => MaxMessageSender::class,
             'attachment' => 'array',
             'operator_id' => 'integer',
             'read_at' => 'datetime',
@@ -74,10 +74,10 @@ class ChatMessage extends Model
         };
     }
 
-    /** @return BelongsTo<BotChat, $this> */
-    public function botChat(): BelongsTo
+    /** @return BelongsTo<MaxChat, $this> */
+    public function maxChat(): BelongsTo
     {
-        return $this->belongsTo(BotChat::class);
+        return $this->belongsTo(MaxChat::class);
     }
 
     /** @return BelongsTo<Model, $this> */

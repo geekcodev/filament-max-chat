@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Livewire;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageSender;
-use GeekCo\FilamentMaxChat\Models\BotChat;
-use GeekCo\FilamentMaxChat\Models\ChatMessage;
-use GeekCo\FilamentMaxChat\Services\ChatAttachmentStore;
-use GeekCo\FilamentMaxChat\Services\ChatMessageService;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\FilamentMaxChat\Models\MaxChat;
+use GeekCo\FilamentMaxChat\Models\MaxMessage;
+use GeekCo\FilamentMaxChat\Services\ChatProfileRefresher;
+use GeekCo\FilamentMaxChat\Services\MaxAttachmentStore;
 use GeekCo\FilamentMaxChat\Services\MaxChatSender;
+use GeekCo\FilamentMaxChat\Services\MaxMessageService;
 use GeekCo\FilamentMaxChat\Support\TextSanitizer;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use GeekCo\MaxPhpClient\Enum\UploadType;
@@ -34,20 +35,23 @@ class OperatorChat extends Component
 
     public ?TemporaryUploadedFile $attachment = null;
 
-    /** @var Collection<int, ChatMessage> */
+    /** @var Collection<int, MaxMessage> */
     public Collection $messages;
 
     #[Locked]
     public bool $canAnswer = false;
 
-    private ?ChatMessageService $service = null;
+    private ?MaxMessageService $service = null;
 
     private ?TextSanitizer $sanitizer = null;
 
+    private ?ChatProfileRefresher $profileRefresher = null;
+
     public function boot(): void
     {
-        $this->service = app(ChatMessageService::class);
+        $this->service = app(MaxMessageService::class);
         $this->sanitizer = app(TextSanitizer::class);
+        $this->profileRefresher = app(ChatProfileRefresher::class);
     }
 
     public function render(): View
@@ -55,7 +59,7 @@ class OperatorChat extends Component
         return view('filament-max-chat::components.operator-chat');
     }
 
-    public function mount(?int $chat = null): void
+    public function mount(?int $chat = null, ?int $chat_id = null): void
     {
         $this->messages = new Collection();
 
@@ -65,6 +69,16 @@ class OperatorChat extends Component
 
         $this->canAnswer = $user->can($this->answerPermission());
 
+        if ($chat_id !== null) {
+            $internalId = $this->service?->resolveInternalIdFromMaxChatId($chat_id);
+
+            if ($internalId !== null) {
+                $this->selectChat($internalId);
+
+                return;
+            }
+        }
+
         if ($chat !== null) {
             $this->selectChat($chat);
         }
@@ -73,6 +87,11 @@ class OperatorChat extends Component
     public function selectChat(int $chatId): void
     {
         $this->activeChatId = $chatId;
+
+        if ($this->prefetchIncludes('on_open')) {
+            $this->profileRefresher?->refreshForChat($chatId);
+        }
+
         $this->loadMessages();
         $this->service?->markRead($chatId);
         $this->dispatchUnreadCount();
@@ -119,6 +138,25 @@ class OperatorChat extends Component
         $this->dispatchUnreadCount();
     }
 
+    public function removeChat(): void
+    {
+        $user = auth()->user();
+
+        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+
+        if ($this->activeChatId === null) {
+            return;
+        }
+
+        $this->service?->removeChat($this->activeChatId);
+
+        $this->activeChatId = null;
+        $this->messages = new Collection();
+
+        $this->dispatchUnreadCount();
+        $this->dispatch('chat-removed');
+    }
+
     public function deleteMessage(int $messageId): void
     {
         $user = auth()->user();
@@ -128,19 +166,25 @@ class OperatorChat extends Component
         $this->service?->deleteMessage($messageId);
 
         $this->messages = $this->messages->reject(
-            static fn (ChatMessage $m): bool => $m->id === $messageId,
+            static fn (MaxMessage $m): bool => $m->id === $messageId,
         )->values();
 
         $this->dispatchUnreadCount();
     }
 
     /**
-     * @return Collection<int, BotChat>
+     * @return Collection<int, MaxChat>
      */
     #[Computed]
     public function conversations(): Collection
     {
-        return $this->service?->conversations() ?? new Collection();
+        $conversations = $this->service?->conversations() ?? new Collection();
+
+        if ($this->prefetchIncludes('on_list')) {
+            $this->profileRefresher?->refreshForConversations($conversations);
+        }
+
+        return $conversations;
     }
 
     #[Computed]
@@ -156,8 +200,8 @@ class OperatorChat extends Component
             return false;
         }
 
-        return ChatMessage::query()
-            ->where('bot_chat_id', $this->activeChatId)
+        return MaxMessage::query()
+            ->where('max_chat_id', $this->activeChatId)
             ->where('id', '<', $oldest->id)
             ->exists();
     }
@@ -179,10 +223,10 @@ class OperatorChat extends Component
             return;
         }
 
-        /** @var class-string<BotChat> $botChatModel */
-        $botChatModel = config()->string('filament-max-chat.bot_chat_model');
+        /** @var class-string<MaxChat> $chatModel */
+        $chatModel = config()->string('filament-max-chat.chat_model');
 
-        $chat = $botChatModel::query()->findOrFail($this->activeChatId);
+        $chat = $chatModel::query()->findOrFail($this->activeChatId);
 
         $caption = trim($this->reply) !== '' ? (string) $this->sanitizer?->sanitize($this->reply) : null;
         $maxCaption = $caption !== null ? (string) $this->sanitizer?->toMaxHtml($caption) : null;
@@ -201,7 +245,7 @@ class OperatorChat extends Component
             }
         } catch (Throwable $exception) {
             Log::error('Operator chat: failed to send reply to MAX.', [
-                'bot_chat_id' => $chat->id,
+                'max_chat_id' => $chat->id,
                 'error' => $exception->getMessage(),
             ]);
             $this->addError('reply', __('filament-max-chat::chat.send_failed'));
@@ -210,7 +254,7 @@ class OperatorChat extends Component
         }
 
         $attachmentMeta = $this->attachment !== null
-            ? app(ChatAttachmentStore::class)->storeFromUpload($this->attachment)
+            ? app(MaxAttachmentStore::class)->storeFromUpload($this->attachment)
             : null;
 
         /** @var int|string $identifier */
@@ -228,7 +272,7 @@ class OperatorChat extends Component
             userId: $chat->user_id,
             chatId: $chatId,
             text: $maxCaption,
-            sender: ChatMessageSender::Operator,
+            sender: MaxMessageSender::Operator,
             operatorId: $operatorId,
             attachment: $attachmentMeta,
         );
@@ -290,7 +334,7 @@ class OperatorChat extends Component
         }
 
         $newOnly = $newMessages->filter(
-            static fn (ChatMessage $message): bool => $message->id > $latest->id,
+            static fn (MaxMessage $message): bool => $message->id > $latest->id,
         );
 
         if ($newOnly->isNotEmpty()) {
@@ -332,5 +376,12 @@ class OperatorChat extends Component
     private function answerPermission(): string
     {
         return config()->string('filament-max-chat.permissions.answer', 'chat.answer');
+    }
+
+    private function prefetchIncludes(string $trigger): bool
+    {
+        $prefetch = (string) config()->string('filament-max-chat.profile.prefetch', 'both');
+
+        return $prefetch === 'both' || $prefetch === $trigger;
     }
 }

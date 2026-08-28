@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Models;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection;
-use GeekCo\LaravelMaxClient\Models\BotChat as BaseBotChat;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
+use GeekCo\LaravelMaxClient\Models\MaxChat as BaseMaxChat;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,11 +16,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  *
  * @property int $user_id
  * @property int|null $chat_id
- * @property \GeekCo\LaravelMaxClient\Enums\BotChatStatus $status
+ * @property \GeekCo\LaravelMaxClient\Enums\MaxChatStatus $status
  * @property \Illuminate\Support\Carbon|null $last_activity_at
- * @property int $unread_count Computed attribute from ChatMessageService::conversations().
+ * @property int $unread_count Computed attribute from MaxMessageService::conversations().
  */
-class BotChat extends BaseBotChat
+class MaxChat extends BaseMaxChat
 {
     /** @return BelongsTo<MaxUser, $this> */
     public function maxUser(): BelongsTo
@@ -28,22 +28,22 @@ class BotChat extends BaseBotChat
         return $this->belongsTo(MaxUser::class, 'user_id', 'user_id');
     }
 
-    /** @return HasMany<ChatMessage, $this> */
+    /** @return HasMany<MaxMessage, $this> */
     public function messages(): HasMany
     {
-        return $this->hasMany(ChatMessage::class, 'bot_chat_id');
+        return $this->hasMany(MaxMessage::class, 'max_chat_id');
     }
 
-    /** @return HasOne<ChatMessage, $this> */
+    /** @return HasOne<MaxMessage, $this> */
     public function lastMessage(): HasOne
     {
-        return $this->hasOne(ChatMessage::class, 'bot_chat_id')->latestOfMany();
+        return $this->hasOne(MaxMessage::class, 'max_chat_id')->latestOfMany();
     }
 
     public function unreadCount(): int
     {
         return $this->messages()
-            ->where('direction', ChatMessageDirection::In)
+            ->where('direction', MaxMessageDirection::In)
             ->whereNull('read_at')
             ->count();
     }

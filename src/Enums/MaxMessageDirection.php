@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Enums;
 
-enum ChatMessageDirection: string
+enum MaxMessageDirection: string
 {
     case In = 'in';
     case Out = 'out';

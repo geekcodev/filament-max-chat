@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat\Tests\Unit\Models;
 
-use GeekCo\FilamentMaxChat\Enums\ChatMessageDirection;
-use GeekCo\FilamentMaxChat\Enums\ChatMessageSender;
-use GeekCo\FilamentMaxChat\Models\BotChat;
-use GeekCo\FilamentMaxChat\Models\ChatMessage;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
+use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\FilamentMaxChat\Models\MaxChat;
+use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
-use GeekCo\LaravelMaxClient\Enums\BotChatStatus;
+use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
-class ChatMessageTest extends TestCase
+class MaxMessageTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -58,46 +58,46 @@ class ChatMessageTest extends TestCase
         $this->assertNotEmpty($message->previewText());
     }
 
-    public function test_bot_chat_relation(): void
+    public function test_max_chat_relation(): void
     {
-        $chat = BotChat::query()->create([
+        $chat = MaxChat::query()->create([
             'user_id' => 111,
             'chat_id' => 222,
-            'status' => BotChatStatus::Active,
+            'status' => MaxChatStatus::Active,
             'last_activity_at' => now(),
         ]);
 
-        $message = ChatMessage::query()->create([
-            'bot_chat_id' => $chat->id,
+        $message = MaxMessage::query()->create([
+            'max_chat_id' => $chat->id,
             'user_id' => 111,
             'chat_id' => 222,
-            'direction' => ChatMessageDirection::In,
-            'sender_type' => ChatMessageSender::User,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
             'text' => 'Test',
         ]);
 
-        $this->assertInstanceOf(BotChat::class, $message->botChat);
-        $this->assertSame($chat->id, $message->botChat->id);
+        $this->assertInstanceOf(MaxChat::class, $message->maxChat);
+        $this->assertSame($chat->id, $message->maxChat->id);
     }
 
     /**
      * @param array{type: string}|null $attachment
      */
-    private function createMessage(?string $text, ?array $attachment = null): ChatMessage
+    private function createMessage(?string $text, ?array $attachment = null): MaxMessage
     {
-        $chat = BotChat::query()->create([
+        $chat = MaxChat::query()->create([
             'user_id' => 111,
             'chat_id' => 222,
-            'status' => BotChatStatus::Active,
+            'status' => MaxChatStatus::Active,
             'last_activity_at' => now(),
         ]);
 
-        return ChatMessage::query()->create([
-            'bot_chat_id' => $chat->id,
+        return MaxMessage::query()->create([
+            'max_chat_id' => $chat->id,
             'user_id' => 111,
             'chat_id' => 222,
-            'direction' => ChatMessageDirection::In,
-            'sender_type' => ChatMessageSender::User,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
             'text' => $text,
             'attachment' => $attachment,
         ]);
