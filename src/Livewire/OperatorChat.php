@@ -33,7 +33,8 @@ class OperatorChat extends Component
 
     public string $reply = '';
 
-    public ?TemporaryUploadedFile $attachment = null;
+    /** @var list<TemporaryUploadedFile> */
+    public array $attachments = [];
 
     /** @var Collection<int, MaxMessage> */
     public Collection $messages;
@@ -206,9 +207,9 @@ class OperatorChat extends Component
             ->exists();
     }
 
-    public function updatedAttachment(): void
+    public function updatedAttachments(): void
     {
-        $this->validateOnly('attachment', $this->rules());
+        $this->validateOnly('attachments', $this->rules());
     }
 
     public function sendReply(): void
@@ -233,13 +234,20 @@ class OperatorChat extends Component
         $recipient = new Recipient(chatId: $chat->chat_id, userId: $chat->user_id);
 
         try {
-            if ($this->attachment !== null) {
-                app(MaxChatSender::class)->sendAttachment(
-                    $recipient,
-                    $this->uploadTypeFor($this->attachment),
-                    $this->attachment->getRealPath(),
-                    $maxCaption,
+            $attachments = $this->attachments;
+            $store = app(MaxAttachmentStore::class);
+
+            if ($attachments !== []) {
+                $types = array_map(
+                    fn (TemporaryUploadedFile $file): UploadType => $this->uploadTypeFor($file),
+                    $attachments,
                 );
+                $paths = array_map(
+                    static fn (TemporaryUploadedFile $file): string => (string) $file->getRealPath(),
+                    $attachments,
+                );
+
+                app(MaxChatSender::class)->sendAttachments($recipient, $types, $paths, $maxCaption);
             } else {
                 app(MaxChatSender::class)->sendFormatted($recipient, (string) $maxCaption);
             }
@@ -253,9 +261,10 @@ class OperatorChat extends Component
             return;
         }
 
-        $attachmentMeta = $this->attachment !== null
-            ? app(MaxAttachmentStore::class)->storeFromUpload($this->attachment)
-            : null;
+        $attachmentMeta = array_map(
+            static fn (TemporaryUploadedFile $file): array => $store->storeFromUpload($file),
+            $this->attachments,
+        );
 
         /** @var int|string $identifier */
         $identifier = $user->getAuthIdentifier();
@@ -274,10 +283,10 @@ class OperatorChat extends Component
             text: $maxCaption,
             sender: MaxMessageSender::Operator,
             operatorId: $operatorId,
-            attachment: $attachmentMeta,
+            attachments: $attachmentMeta,
         );
 
-        $this->reset('reply', 'attachment');
+        $this->reset('reply', 'attachments');
 
         $this->dispatch('clear-file-input');
         $this->loadMessages();
@@ -351,8 +360,9 @@ class OperatorChat extends Component
         $maxKb = config()->integer('filament-max-chat.attachments.upload_max_kb', 20480);
 
         return [
-            'reply' => [$this->attachment === null ? 'required' : 'nullable', 'string', 'max:4096'],
-            'attachment' => ['nullable', 'file', "max:{$maxKb}", "mimes:{$mimes}"],
+            'reply' => [$this->attachments === [] ? 'required' : 'nullable', 'string', 'max:4096'],
+            'attachments' => ['nullable', 'array', 'max:10'],
+            'attachments.*' => ['file', "max:{$maxKb}", "mimes:{$mimes}"],
         ];
     }
 

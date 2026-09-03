@@ -368,8 +368,9 @@ class MaxMessageServiceTest extends TestCase
 
         $this->assertNotNull($message);
 
-        $attachment = $message->attachment;
-        $this->assertIsArray($attachment);
+        $attachments = $message->attachments();
+        $this->assertCount(1, $attachments);
+        $attachment = $attachments[0];
         $this->assertArrayHasKey('mime', $attachment);
         $this->assertArrayHasKey('size', $attachment);
         $this->assertArrayHasKey('path', $attachment);
@@ -392,7 +393,7 @@ class MaxMessageServiceTest extends TestCase
         $message = app(MaxMessageService::class)->storeIncoming($update);
 
         $this->assertNotNull($message);
-        $this->assertNull($message->attachment);
+        $this->assertSame([], $message->attachment);
     }
 
     /**

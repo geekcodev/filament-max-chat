@@ -55,7 +55,7 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
         }
 
         Route::get(
-            (string) config()->string('filament-max-chat.route.uri'),
+            (string) config()->string('filament-max-chat.route.uri').'/{index}',
             MaxAttachmentController::class,
         )
             ->middleware('web')

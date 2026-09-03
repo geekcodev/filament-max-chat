@@ -34,19 +34,28 @@ class MaxChatSender
     }
 
     /**
-     * Sends a reply with an attachment (photo/video/audio/file) and caption.
+     * Sends a reply with one or more attachments and a caption.
+     *
+     * @param list<UploadType> $types
+     * @param list<string>     $paths absolute paths, aligned with $types by index
      */
-    public function sendAttachment(
+    public function sendAttachments(
         Recipient $recipient,
-        UploadType $type,
-        string $absolutePath,
+        array $types,
+        array $paths,
         ?string $caption = null,
     ): void {
+        $attachments = [];
+
+        foreach ($types as $index => $type) {
+            $attachments[] = $this->uploadToAttachment($type, $paths[$index]);
+        }
+
         $this->api->sendMessage(
             recipient: $recipient,
             body: NewMessageBody::create(
                 text: $caption,
-                attachments: [$this->uploadToAttachment($type, $absolutePath)],
+                attachments: $attachments,
                 format: $caption !== null && $caption !== '' ? TextFormat::Html : null,
             ),
         );

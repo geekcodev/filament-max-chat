@@ -292,28 +292,29 @@ class OperatorChatTest extends TestCase
         $chat = $this->createChat();
 
         $this->mock(MaxChatSender::class)
-            ->shouldReceive('sendAttachment')
+            ->shouldReceive('sendAttachments')
             ->once()
             ->with(
                 Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222 && $recipient->userId === 111),
-                UploadType::File,
-                Mockery::on(static fn (mixed $path): bool => is_string($path) && is_file($path)),
+                [UploadType::File],
+                Mockery::on(static fn (array $paths): bool => is_string($paths[0] ?? null) && is_file($paths[0])),
                 null,
             );
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
-            ->set('attachment', UploadedFile::fake()->create('doc.pdf', 100, 'application/pdf'))
+            ->set('attachments', [UploadedFile::fake()->create('doc.pdf', 100, 'application/pdf')])
             ->set('reply', '')
             ->call('sendReply')
             ->assertHasNoErrors()
             ->assertSet('reply', '')
-            ->assertSet('attachment', null);
+            ->assertSet('attachments', []);
 
         $message = MaxMessage::query()->where('direction', MaxMessageDirection::Out->value)->firstOrFail();
 
-        $attachment = $message->attachment;
-        $this->assertIsArray($attachment);
+        $attachments = $message->attachments();
+        $this->assertCount(1, $attachments);
+        $attachment = $attachments[0];
         $this->assertArrayHasKey('name', $attachment);
         $this->assertArrayHasKey('path', $attachment);
         $this->assertSame('file', $attachment['type']);
@@ -330,25 +331,60 @@ class OperatorChatTest extends TestCase
         $chat = $this->createChat();
 
         $this->mock(MaxChatSender::class)
-            ->shouldReceive('sendAttachment')
+            ->shouldReceive('sendAttachments')
             ->once()
             ->with(
                 Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222),
-                UploadType::Image,
-                Mockery::type('string'),
+                [UploadType::Image],
+                Mockery::type('array'),
                 '<b>Фото</b>',
             );
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
-            ->set('attachment', UploadedFile::fake()->image('photo.png'))
+            ->set('attachments', [UploadedFile::fake()->image('photo.png')])
             ->set('reply', '<b>Фото</b>')
             ->call('sendReply')
             ->assertHasNoErrors();
 
-        $attachment = MaxMessage::query()->where('direction', MaxMessageDirection::Out->value)->firstOrFail()->attachment;
-        $this->assertIsArray($attachment);
-        $this->assertSame('image', $attachment['type']);
+        $attachments = MaxMessage::query()->where('direction', MaxMessageDirection::Out->value)->firstOrFail()->attachments();
+        $this->assertCount(1, $attachments);
+        $this->assertSame('image', $attachments[0]['type']);
+    }
+
+    public function test_reply_with_multiple_attachments_sends_and_stores_all(): void
+    {
+        Storage::fake('local');
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        $this->mock(MaxChatSender::class)
+            ->shouldReceive('sendAttachments')
+            ->once()
+            ->with(
+                Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222),
+                [UploadType::Image, UploadType::File],
+                Mockery::on(static fn (array $paths): bool => count($paths) === 2),
+                '<b>Два файла</b>',
+            );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->set('attachments', [
+                UploadedFile::fake()->image('photo.png'),
+                UploadedFile::fake()->create('doc.pdf', 50, 'application/pdf'),
+            ])
+            ->set('reply', '<b>Два файла</b>')
+            ->call('sendReply')
+            ->assertHasNoErrors()
+            ->assertSet('attachments', []);
+
+        $message = MaxMessage::query()->where('direction', MaxMessageDirection::Out->value)->firstOrFail();
+        $attachments = $message->attachments();
+        $this->assertCount(2, $attachments);
+        $this->assertSame('image', $attachments[0]['type']);
+        $this->assertSame('file', $attachments[1]['type']);
+        $this->assertSame('doc.pdf', $attachments[1]['name'] ?? null);
     }
 
     public function test_oversized_attachment_is_rejected_without_sending(): void
@@ -357,12 +393,12 @@ class OperatorChatTest extends TestCase
         $staff = $this->createStaff();
         $chat = $this->createChat();
 
-        $this->mock(MaxChatSender::class)->shouldReceive('sendAttachment')->never();
+        $this->mock(MaxChatSender::class)->shouldReceive('sendAttachments')->never();
         $this->mock(MaxChatSender::class)->shouldReceive('sendFormatted')->never();
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
-            ->set('attachment', UploadedFile::fake()->create('big.pdf', 20481, 'application/pdf'))
+            ->set('attachments', [UploadedFile::fake()->create('big.pdf', 20481, 'application/pdf')])
             ->call('sendReply')
             ->assertHasErrors();
 
@@ -400,6 +436,36 @@ class OperatorChatTest extends TestCase
             ->assertForbidden();
 
         $this->assertDatabaseCount('max_chat_messages', 1);
+    }
+
+    public function test_clear_chat_is_noop_without_active_chat(): void
+    {
+        $staff = $this->createStaff();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->call('clearChat')
+            ->assertSet('activeChatId', null);
+    }
+
+    public function test_remove_chat_is_noop_without_active_chat(): void
+    {
+        $staff = $this->createStaff();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->call('removeChat')
+            ->assertSet('activeChatId', null);
+    }
+
+    public function test_refresh_is_noop_without_active_chat(): void
+    {
+        $staff = $this->createStaff();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->call('refresh')
+            ->assertSet('activeChatId', null);
     }
 
     public function test_delete_message_removes_from_db_and_collection(): void
@@ -517,6 +583,55 @@ class OperatorChatTest extends TestCase
             ->assertSee('Привет');
     }
 
+    public function test_refresh_appends_new_message_after_latest(): void
+    {
+        config()->set('filament-max-chat.ui.messages_limit', 100);
+
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $old = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Старое');
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->assertSee('Старое');
+
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Новое');
+
+        $component->call('refresh')->assertSee('Новое');
+    }
+
+    public function test_refresh_loads_into_empty_collection_with_active_chat(): void
+    {
+        config()->set('filament-max-chat.ui.messages_limit', 100);
+
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->assertSet('activeChatId', $chat->id)
+            ->assertSet('messages', new \Illuminate\Database\Eloquent\Collection());
+
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Первое');
+
+        $component->call('refresh')->assertSee('Первое');
+    }
+
+    public function test_refresh_without_new_messages_keeps_current_feed(): void
+    {
+        config()->set('filament-max-chat.ui.messages_limit', 100);
+
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Существующее');
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->assertSee('Существующее');
+
+        $component->call('refresh')->assertSee('Существующее');
+    }
+
     public function test_send_reply_sends_formatted_message(): void
     {
         Storage::fake('local');
@@ -541,18 +656,18 @@ class OperatorChatTest extends TestCase
         $chat = $this->createChat();
 
         $this->mock(MaxChatSender::class)
-            ->shouldReceive('sendAttachment')
+            ->shouldReceive('sendAttachments')
             ->once()
             ->with(
                 Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222),
-                UploadType::Audio,
-                Mockery::type('string'),
+                [UploadType::Audio],
+                Mockery::type('array'),
                 null,
             );
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
-            ->set('attachment', UploadedFile::fake()->create('voice.mp3', 10, 'audio/mpeg'))
+            ->set('attachments', [UploadedFile::fake()->create('voice.mp3', 10, 'audio/mpeg')])
             ->set('reply', '')
             ->call('sendReply')
             ->assertHasNoErrors();
@@ -565,18 +680,18 @@ class OperatorChatTest extends TestCase
         $chat = $this->createChat();
 
         $this->mock(MaxChatSender::class)
-            ->shouldReceive('sendAttachment')
+            ->shouldReceive('sendAttachments')
             ->once()
             ->with(
                 Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222),
-                UploadType::File,
-                Mockery::type('string'),
+                [UploadType::File],
+                Mockery::type('array'),
                 Mockery::type('string'),
             );
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->id])
-            ->set('attachment', UploadedFile::fake()->create('report.pdf', 10, 'application/pdf'))
+            ->set('attachments', [UploadedFile::fake()->create('report.pdf', 10, 'application/pdf')])
             ->set('reply', 'Файл для тебя')
             ->call('sendReply')
             ->assertHasNoErrors();
@@ -633,8 +748,8 @@ class OperatorChatTest extends TestCase
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class)
-            ->set('attachment', UploadedFile::fake()->create('photo.jpg', 10, 'image/jpeg'))
-            ->assertHasNoErrors('attachment');
+            ->set('attachments', [UploadedFile::fake()->create('photo.jpg', 10, 'image/jpeg')])
+            ->assertHasNoErrors('attachments');
     }
 
     private function createUser(bool $canView = false, bool $canAnswer = false): TestUser

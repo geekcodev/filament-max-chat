@@ -97,6 +97,41 @@ class ChatProfileRefresherTest extends TestCase
         Queue::assertNotPushed(RefreshChatProfilesJob::class);
     }
 
+    public function test_no_job_when_chat_has_no_max_user(): void
+    {
+        $refresh = app(ChatProfileRefresher::class);
+
+        $chat = MaxChat::query()->create([
+            'user_id' => 444,
+            'chat_id' => 555,
+            'status' => MaxChatStatus::Active,
+            'last_activity_at' => now(),
+        ]);
+
+        $refresh->refreshForChat($chat->id);
+
+        Queue::assertNotPushed(RefreshChatProfilesJob::class);
+    }
+
+    public function test_refresh_for_conversations_skips_chat_without_max_user(): void
+    {
+        $refresh = app(ChatProfileRefresher::class);
+
+        $noUserChat = MaxChat::query()->create([
+            'user_id' => 444,
+            'chat_id' => 555,
+            'status' => MaxChatStatus::Active,
+            'last_activity_at' => now(),
+        ]);
+        $withUserChat = $this->createChat(avatar: false, userId: 111);
+
+        $refresh->refreshForConversations(collect([$noUserChat, $withUserChat]));
+
+        Queue::assertPushed(RefreshChatProfilesJob::class, static function (RefreshChatProfilesJob $job): bool {
+            return $job->users === [['user_id' => 111, 'chat_id' => 222]];
+        });
+    }
+
     private function createChat(bool $avatar, int $userId = 111): MaxChat
     {
         MaxUser::query()->updateOrCreate(

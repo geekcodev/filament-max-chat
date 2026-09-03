@@ -50,7 +50,7 @@ class MaxMessageService
             senderType: MaxMessageSender::User,
             text: $text,
             messageId: $update->messageId ?? $update->message?->body?->mid,
-            attachment: $this->attachments->storeFromIncoming($update->message?->body?->attachments),
+            attachments: $this->attachments->storeFromIncoming($update->message?->body?->attachments),
         );
     }
 
@@ -93,7 +93,7 @@ class MaxMessageService
     }
 
     /**
-     * @param array{type: string, path?: string, name?: string, mime?: string, size?: int}|null $attachment
+     * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
      */
     public function storeOutgoing(
         int $userId,
@@ -102,7 +102,7 @@ class MaxMessageService
         MaxMessageSender $sender,
         ?int $operatorId = null,
         ?string $messageId = null,
-        ?array $attachment = null,
+        array $attachments = [],
     ): ?MaxMessage {
         $maxChat = $this->upsertChat($userId, $chatId);
 
@@ -113,7 +113,7 @@ class MaxMessageService
             text: $text,
             operatorId: $operatorId,
             messageId: $messageId,
-            attachment: $attachment,
+            attachments: $attachments,
         );
     }
 
@@ -330,7 +330,7 @@ class MaxMessageService
     }
 
     /**
-     * @param array{type: string, path?: string, name?: string, mime?: string, size?: int}|null $attachment
+     * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
      */
     private function createMessage(
         MaxChat $maxChat,
@@ -339,7 +339,7 @@ class MaxMessageService
         ?string $text,
         ?int $operatorId = null,
         ?string $messageId = null,
-        ?array $attachment = null,
+        array $attachments = [],
     ): MaxMessage {
         $maxChat->forceFill(['last_activity_at' => now()])->save();
 
@@ -350,7 +350,7 @@ class MaxMessageService
             'direction' => $direction,
             'sender_type' => $senderType,
             'text' => $text,
-            'attachment' => $attachment,
+            'attachment' => $attachments,
             'operator_id' => $operatorId,
         ]);
 

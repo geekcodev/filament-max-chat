@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property MaxMessageDirection $direction
  * @property MaxMessageSender $sender_type
  * @property string|null $text
- * @property array{type: string, path?: string, name?: string, mime?: string, size?: int}|null $attachment
+ * @property list<array{type: string, path?: string, name?: string, mime?: string, size?: int}>|null $attachment
  * @property int|null $operator_id
  * @property \Illuminate\Support\Carbon|null $read_at
  * @property \Illuminate\Support\Carbon|null $created_at
@@ -56,6 +56,30 @@ class MaxMessage extends Model
     }
 
     /**
+     * Attachment metadata stored for this message (always a list).
+     *
+     * @return list<array{type: string, path?: string, name?: string, mime?: string, size?: int}>
+     */
+    public function attachments(): array
+    {
+        if (! is_array($this->attachment)) {
+            return [];
+        }
+
+        return $this->attachment;
+    }
+
+    /**
+     * Attachment metadata for a given index.
+     *
+     * @return array{type: string, path?: string, name?: string, mime?: string, size?: int}|null
+     */
+    public function attachmentAt(int $index = 0): ?array
+    {
+        return $this->attachments()[$index] ?? null;
+    }
+
+    /**
      * Short text for preview in the conversation list and feed.
      */
     public function previewText(): string
@@ -64,14 +88,25 @@ class MaxMessage extends Model
             return $this->text;
         }
 
-        $type = is_array($this->attachment) ? ($this->attachment['type'] ?? null) : null;
+        $attachments = $this->attachments();
 
-        return match ($type) {
+        if ($attachments === []) {
+            return __('filament-max-chat::chat.preview.file');
+        }
+
+        $first = $attachments[0];
+        $type = $first['type'];
+
+        $label = match ($type) {
             'image' => __('filament-max-chat::chat.preview.image'),
             'video' => __('filament-max-chat::chat.preview.video'),
             'audio' => __('filament-max-chat::chat.preview.audio'),
             default => __('filament-max-chat::chat.preview.file'),
         };
+
+        return count($attachments) > 1
+            ? sprintf('%s +%d', $label, count($attachments) - 1)
+            : $label;
     }
 
     /** @return BelongsTo<MaxChat, $this> */
