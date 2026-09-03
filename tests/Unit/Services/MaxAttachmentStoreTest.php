@@ -33,7 +33,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertArrayHasKey('mime', $meta);
         $this->assertArrayHasKey('size', $meta);
         $this->assertArrayHasKey('path', $meta);
@@ -57,7 +58,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertSame('image', $meta['type']);
         $this->assertArrayNotHasKey('path', $meta);
     }
@@ -77,7 +79,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertArrayNotHasKey('path', $meta);
     }
 
@@ -95,7 +98,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertArrayHasKey('name', $meta);
         $this->assertArrayHasKey('path', $meta);
         $this->assertSame('report.pdf', $meta['name']);
@@ -116,7 +120,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertArrayHasKey('mime', $meta);
         $this->assertArrayHasKey('name', $meta);
         $this->assertArrayHasKey('path', $meta);
@@ -134,18 +139,19 @@ class MaxAttachmentStoreTest extends TestCase
             new Attachment(type: AttachmentType::Video, payload: []),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertSame('video', $meta['type']);
         $this->assertArrayNotHasKey('path', $meta);
         $this->assertSame([], Http::recorded()->all());
     }
 
-    public function test_no_media_attachments_returns_null(): void
+    public function test_no_media_attachments_returns_empty_list(): void
     {
-        $this->assertNull(app(MaxAttachmentStore::class)->storeFromIncoming([
+        $this->assertSame([], app(MaxAttachmentStore::class)->storeFromIncoming([
             new Attachment(type: AttachmentType::InlineKeyboard, payload: []),
         ]));
-        $this->assertNull(app(MaxAttachmentStore::class)->storeFromIncoming(null));
+        $this->assertSame([], app(MaxAttachmentStore::class)->storeFromIncoming(null));
     }
 
     public function test_store_from_upload_persists_file_with_original_name(): void
@@ -232,7 +238,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertSame('audio', $meta['type']);
         $this->assertArrayHasKey('path', $meta);
         Storage::disk('local')->assertExists($meta['path']);
@@ -252,7 +259,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertSame('file', $meta['type']);
         $this->assertArrayHasKey('name', $meta);
         $this->assertSame('data.csv', $meta['name']);
@@ -269,7 +277,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertSame('image', $meta['type']);
         $this->assertArrayNotHasKey('path', $meta);
     }
@@ -286,7 +295,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertSame('file', $meta['type']);
         $this->assertArrayNotHasKey('path', $meta);
     }
@@ -305,7 +315,8 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertArrayHasKey('path', $meta);
     }
 
@@ -323,9 +334,29 @@ class MaxAttachmentStoreTest extends TestCase
             ),
         ]);
 
-        $this->assertIsArray($meta);
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
         $this->assertArrayHasKey('path', $meta);
         $this->assertStringEndsWith('.jpg', $meta['path']);
+    }
+
+    public function test_audio_extension_falls_back_to_mp3_when_no_mime_extension(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'cdn.max.ru/*' => Http::response('bytes', 200, ['Content-Type' => 'application/x-mystery']),
+        ]);
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::Audio,
+                payload: new \GeekCo\MaxPhpClient\Dto\AudioAttachmentPayload(url: 'https://cdn.max.ru/noext'),
+            ),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertStringEndsWith('.mp3', $meta['path'] ?? '');
     }
 
     public function test_store_from_incoming_skips_non_attachment_items(): void
@@ -335,6 +366,32 @@ class MaxAttachmentStoreTest extends TestCase
             null,
         ]);
 
-        $this->assertNull($result);
+        $this->assertSame([], $result);
+    }
+
+    public function test_store_from_incoming_keeps_all_media_attachments(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'cdn.max.ru/a.png' => Http::response('first-bytes', 200, ['Content-Type' => 'image/png']),
+            'cdn.max.ru/b.png' => Http::response('second-bytes', 200, ['Content-Type' => 'image/png']),
+        ]);
+
+        $result = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::Image,
+                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/a.png'),
+            ),
+            new Attachment(
+                type: AttachmentType::Image,
+                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/b.png'),
+            ),
+        ]);
+
+        $this->assertCount(2, $result);
+        $this->assertSame('image', $result[0]['type']);
+        $this->assertSame('image', $result[1]['type']);
+        Storage::disk('local')->assertExists($result[0]['path'] ?? '');
+        Storage::disk('local')->assertExists($result[1]['path'] ?? '');
     }
 }

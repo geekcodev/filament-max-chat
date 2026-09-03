@@ -25,14 +25,17 @@ class MaxAttachmentStore
     public const int DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
 
     /**
-     * Extracts the first media attachment from an MAX update and stores it locally.
+     * Extracts all media attachments from a MAX update and stores them locally.
      *
      * @param list<mixed>|null $attachments
-     * @return array{type: string, path?: string, name?: string, mime?: string, size?: int}|null
+     *
+     * @return list<array{type: string, path?: string, name?: string, mime?: string, size?: int}>
      */
-    public function storeFromIncoming(?array $attachments): ?array
+    public function storeFromIncoming(?array $attachments): array
     {
         $maxBytes = $this->maxBytes();
+
+        $stored = [];
 
         foreach ($attachments ?? [] as $attachment) {
             if (!$attachment instanceof Attachment) {
@@ -54,11 +57,11 @@ class MaxAttachmentStore
             };
 
             if ($meta !== null) {
-                return $meta;
+                $stored[] = $meta;
             }
         }
 
-        return null;
+        return $stored;
     }
 
     /**

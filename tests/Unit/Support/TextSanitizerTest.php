@@ -87,6 +87,15 @@ class TextSanitizerTest extends TestCase
         $this->assertStringContainsString('Текст', $result);
     }
 
+    public function test_removes_top_level_comments(): void
+    {
+        $result = $this->sanitizer->sanitize('<!-- до --><p>Текст</p><!-- после -->');
+
+        $this->assertStringNotContainsString('до', $result);
+        $this->assertStringNotContainsString('после', $result);
+        $this->assertStringContainsString('<p>Текст</p>', $result);
+    }
+
     public function test_empty_string_returns_empty(): void
     {
         $this->assertSame('', $this->sanitizer->sanitize(''));

@@ -50,12 +50,50 @@ class MaxMessageService
             senderType: MaxMessageSender::User,
             text: $text,
             messageId: $update->messageId ?? $update->message?->body?->mid,
-            attachment: $this->attachments->storeFromIncoming($update->message?->body?->attachments),
+            attachments: $this->attachments->storeFromIncoming($update->message?->body?->attachments),
         );
     }
 
     /**
-     * @param array{type: string, path?: string, name?: string, mime?: string, size?: int}|null $attachment
+     * Сохранить входящее пользовательское сообщение с произвольным текстом
+     * (не из апдейта): заявки/leads, «Позвать оператора» и пр.
+     * Обновляет профиль max_users (имя чата) из переданного User либо из реестра,
+     * сохраняет сообщение как непрочитанное входящее (direction=In, sender=User).
+     * В MAX ничего не отправляется — только история + broadcast.
+     *
+     * @param string|null $messageId внешний message_id (уникальность/источник)
+     */
+    public function storeIncomingForUser(
+        int $userId,
+        int $chatId,
+        ?User $user,
+        ?string $text,
+        ?string $messageId = null,
+    ): ?MaxMessage {
+        $user ??= $this->userFromRegistry($userId);
+
+        if ($user === null) {
+            $this->logger->log('warning', 'Incoming MAX message for user skipped: profile unavailable.', [
+                'user_id' => $userId,
+                'chat_id' => $chatId,
+            ]);
+
+            return null;
+        }
+
+        $maxChat = $this->upsertChat($userId, $chatId, $user);
+
+        return $this->createMessage(
+            maxChat: $maxChat,
+            direction: MaxMessageDirection::In,
+            senderType: MaxMessageSender::User,
+            text: $text,
+            messageId: $messageId,
+        );
+    }
+
+    /**
+     * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
      */
     public function storeOutgoing(
         int $userId,
@@ -64,7 +102,7 @@ class MaxMessageService
         MaxMessageSender $sender,
         ?int $operatorId = null,
         ?string $messageId = null,
-        ?array $attachment = null,
+        array $attachments = [],
     ): ?MaxMessage {
         $maxChat = $this->upsertChat($userId, $chatId);
 
@@ -75,7 +113,7 @@ class MaxMessageService
             text: $text,
             operatorId: $operatorId,
             messageId: $messageId,
-            attachment: $attachment,
+            attachments: $attachments,
         );
     }
 
@@ -244,6 +282,25 @@ class MaxMessageService
         return config()->string('filament-max-chat.chat_model', MaxChat::class);
     }
 
+    private function userFromRegistry(int $userId): ?User
+    {
+        $record = MaxUser::query()->find($userId);
+
+        if ($record === null) {
+            return null;
+        }
+
+        return new User(
+            userId: (int) $record->user_id,
+            firstName: (string) $record->first_name,
+            lastName: $record->last_name,
+            username: $record->username,
+            isBot: (bool) $record->is_bot,
+            lastActivityTime: $record->last_activity_time !== null ? (int) $record->last_activity_time : null,
+            name: $record->name,
+        );
+    }
+
     private function upsertChat(int $userId, int $chatId, ?User $user = null): MaxChat
     {
         if ($user !== null) {
@@ -273,7 +330,7 @@ class MaxMessageService
     }
 
     /**
-     * @param array{type: string, path?: string, name?: string, mime?: string, size?: int}|null $attachment
+     * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
      */
     private function createMessage(
         MaxChat $maxChat,
@@ -282,7 +339,7 @@ class MaxMessageService
         ?string $text,
         ?int $operatorId = null,
         ?string $messageId = null,
-        ?array $attachment = null,
+        array $attachments = [],
     ): MaxMessage {
         $maxChat->forceFill(['last_activity_at' => now()])->save();
 
@@ -293,7 +350,7 @@ class MaxMessageService
             'direction' => $direction,
             'sender_type' => $senderType,
             'text' => $text,
-            'attachment' => $attachment,
+            'attachment' => $attachments,
             'operator_id' => $operatorId,
         ]);
 

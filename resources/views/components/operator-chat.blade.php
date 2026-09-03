@@ -112,26 +112,26 @@
                     </div>
                 </div>
                 @if ($this->canAnswer)
-                    <button
-                        type="button"
-                        wire:click="removeChat"
-                        x-data
-                        x-on:click="if (! confirm('{{ __('filament-max-chat::chat.remove_chat_confirm') }}')) { $event.preventDefault(); }"
-                        class="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-300"
-                        title="{{ __('filament-max-chat::chat.remove_chat') }}"
-                    >
-                        <x-heroicon-o-x-circle class="h-4 w-4" />
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="clearChat"
-                        x-data
-                        x-on:click="if (! confirm('{{ __('filament-max-chat::chat.clear_confirm') }}')) { $event.preventDefault(); }"
-                        class="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-300"
-                        title="{{ __('filament-max-chat::chat.clear_history') }}"
-                    >
-                        <x-heroicon-o-trash class="h-4 w-4" />
-                    </button>
+                    <div class="flex shrink-0 items-center gap-1">
+                        <button
+                            type="button"
+                            wire:click="removeChat"
+                            wire:confirm="{{ __('filament-max-chat::chat.remove_chat_confirm') }}"
+                            class="shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-red-100 hover:text-red-600 dark:text-white dark:hover:bg-red-950 dark:hover:text-red-400"
+                            title="{{ __('filament-max-chat::chat.remove_chat') }}"
+                        >
+                            <x-heroicon-o-x-circle class="h-5 w-5" />
+                        </button>
+                        <button
+                            type="button"
+                            wire:click="clearChat"
+                            wire:confirm="{{ __('filament-max-chat::chat.clear_confirm') }}"
+                            class="shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-red-100 hover:text-red-600 dark:text-white dark:hover:bg-red-950 dark:hover:text-red-400"
+                            title="{{ __('filament-max-chat::chat.clear_history') }}"
+                        >
+                            <x-heroicon-o-trash class="h-5 w-5" />
+                        </button>
+                    </div>
                 @endif
             </div>
             <div id="chat-messages" class="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -165,17 +165,15 @@
                                 <button
                                     type="button"
                                     wire:click="deleteMessage({{ $message->id }})"
-                                    x-data
-                                    x-on:click="if (! confirm('{{ __('filament-max-chat::chat.delete_confirm') }}')) { $event.preventDefault(); }"
+                                    wire:confirm="{{ __('filament-max-chat::chat.delete_confirm') }}"
                                     class="absolute -top-2 -right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-400 opacity-0 shadow-sm transition-opacity pointer-events-none hover:bg-red-500 hover:text-white group-hover:opacity-100 group-hover:pointer-events-auto dark:bg-gray-700 dark:text-gray-500 dark:hover:bg-red-600"
                                     title="{{ __('filament-max-chat::chat.delete_message') }}"
                                 >
                                     <x-heroicon-o-trash class="h-3 w-3" />
                                 </button>
                             @endif
-                            @php($attachment = $message->attachment)
-                            @if (is_array($attachment))
-                                @php($attachmentUrl = filled($attachment['path'] ?? null) ? route('filament-max-chat.attachment', ['message' => $message]) : null)
+                            @foreach ($message->attachments() as $index => $attachment)
+                                @php($attachmentUrl = filled($attachment['path'] ?? null) ? route('filament-max-chat.attachment', ['message' => $message, 'index' => $index]) : null)
                                 @if (($attachment['type'] ?? '') === 'image')
                                     @if ($attachmentUrl !== null)
                                         <a href="{{ $attachmentUrl }}" target="_blank" rel="noopener">
@@ -197,13 +195,16 @@
                                         <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.audio') }}</p>
                                     @endif
                                 @elseif ($attachmentUrl !== null)
-                                    <a href="{{ $attachmentUrl }}" download="{{ $attachment['name'] ?? '' }}" class="underline opacity-90 hover:opacity-100">
-                                        📎 {{ $attachment['name'] ?? '' }}
+                                    <a href="{{ $attachmentUrl }}" download="{{ $attachment['name'] ?? '' }}" class="inline-flex items-center gap-1 underline opacity-90 hover:opacity-100">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline h-4 w-4">
+                                            <path d="M20.4 11.7 12.6 19.5a4 4 0 0 1-5.7-5.7l7.3-7.3a2.8 2.8 0 0 1 4 4l-7.3 7.3a1.6 1.6 0 0 1-2.3-2.3l6.4-6.4"></path>
+                                        </svg>
+                                        {{ $attachment['name'] ?? '' }}
                                     </a>
                                 @else
                                     <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.file_unavailable') }}</p>
                                 @endif
-                            @endif
+                            @endforeach
                             @if ($message->direction === MaxMessageDirection::Out && $message->sender_type === MaxMessageSender::Operator && filled($message->text))
                                 <div class="whitespace-pre-line break-words [&_a]:underline">{!! $message->text !!}</div>
                             @elseif (filled($message->text))
@@ -222,7 +223,7 @@
 
             <div class="border-t border-gray-100 p-3 dark:border-white/5">
                 @if ($this->canAnswer)
-                    <form wire:submit="sendReply" class="space-y-2">
+                    <form wire:submit="sendReply" class="space-y-2" x-data="fmcReplyEditor()">
                         <div class="flex flex-wrap items-center gap-1">
                             @foreach ([
                                 [__('filament-max-chat::chat.format_bold'), '<b>', '</b>', 'font-bold'],
@@ -241,52 +242,121 @@
                             @endforeach
                             <button
                                 type="button"
+                                data-link
                                 title="{{ __('filament-max-chat::chat.insert_link') }}"
                                 data-wrap-start="<a href=&quot;https://&quot;>"
                                 data-wrap-end="</a>"
                                 class="h-7 min-w-7 rounded-md border border-gray-300 px-1.5 text-xs text-gray-700 hover:bg-gray-100 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/10"
-                            >🔗</button>
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+                                    <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"></path>
+                                    <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"></path>
+                                </svg>
+                            </button>
+                            <button
+                                type="button"
+                                x-on:click="togglePreview()"
+                                class="ml-auto h-7 rounded-md border border-gray-300 px-2 text-xs text-gray-700 hover:bg-gray-100 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/10"
+                            >
+                                <span x-show="!preview" class="inline-flex items-center gap-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5">
+                                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                    {{ __('filament-max-chat::chat.preview_toggle') }}
+                                </span>
+                                <span x-show="preview" class="inline-flex items-center gap-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5">
+                                        <path d="m16 18 6-6-6-6"></path>
+                                        <path d="m8 6-6 6 6 6"></path>
+                                    </svg>
+                                    {{ __('filament-max-chat::chat.source_toggle') }}
+                                </span>
+                            </button>
                         </div>
 
                         <textarea
                             id="operator-reply"
+                            x-ref="replyTextarea"
                             wire:model="reply"
+                            x-on:input="raw = $event.target.value"
+                            x-show="!preview"
                             rows="3"
                             placeholder="{{ __('filament-max-chat::chat.placeholder') }}"
                             autocomplete="off"
                             class="block w-full rounded-lg border-gray-300 bg-white px-3 py-2 text-sm text-gray-950 shadow-sm transition duration-75 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-white"
                         ></textarea>
 
+                        <div
+                            x-show="preview"
+                            x-html="sanitizedPreview"
+                            class="block min-h-20 w-full whitespace-pre-wrap break-words rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-950 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-white [&_a]:underline [&_code]:rounded [&_code]:bg-gray-100 [&_code]:px-1 [&_pre]:whitespace-pre-wrap"
+                        ></div>
+
                         @error('reply')
                             <p class="text-sm text-danger-600">{{ $message }}</p>
                         @enderror
 
                         <div
-                            class="flex flex-wrap items-center gap-3"
-                            x-data="{ uploading: false }"
+                            class="flex flex-col gap-2"
+                            x-data="fmcFilePicker()"
                             x-on:livewire:upload:started.window="uploading = true"
-                            x-on:livewire:upload:finished.window="uploading = false; $wire.$attachment === null && ($refs.fileInput.value = '')"
+                            x-on:livewire:upload:finished.window="uploading = false; syncUploaded()"
                             x-on:livewire:upload:cancelled.window="uploading = false"
                             x-on:livewire:upload:error.window="uploading = false"
-                            x-on:clear-file-input.window="$refs.fileInput.value = ''"
+                            x-on:clear-file-input.window="reset()"
                         >
-                            <input
-                                type="file"
-                                wire:model="attachment"
-                                x-ref="fileInput"
-                                accept=".{{ str_replace(',', ',.', config('filament-max-chat.attachments.mimes')) }}"
-                                class="text-sm text-gray-600 file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200 dark:text-gray-400 dark:file:bg-white/10 dark:file:text-gray-200"
-                            >
-                            <span wire:loading wire:target="attachment" class="text-xs text-gray-500">{{ __('filament-max-chat::chat.uploading') }}</span>
-                            @if ($attachment)
-                                <button type="button" wire:click="$set('attachment', null)" x-show="!uploading" class="text-xs text-danger-600 hover:underline">
-                                    {{ __('filament-max-chat::chat.remove_file') }}
-                                </button>
-                            @endif
-                            @error('attachment')
+                            <div class="flex flex-wrap items-center gap-3">
+                                <input
+                                    type="file"
+                                    wire:model="attachments"
+                                    multiple
+                                    x-ref="fileInput"
+                                    x-on:change="onFilesSelected($event)"
+                                    accept=".{{ str_replace(',', ',.', config('filament-max-chat.attachments.mimes')) }}"
+                                    class="text-sm text-gray-600 file:mr-2 file:cursor-pointer file:rounded-md file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-200 dark:text-gray-400 dark:file:bg-white/10 dark:file:text-gray-200"
+                                >
+                                <span wire:loading wire:target="attachments" class="text-xs text-gray-500">{{ __('filament-max-chat::chat.uploading') }}</span>
+                                <x-filament::button type="submit" x-show="!uploading" class="ml-auto">{{ __('filament-max-chat::chat.send') }}</x-filament::button>
+                            </div>
+
+                            <div x-show="selected.length > 0" class="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+                                <template x-for="(item, index) in selected" :key="item.id">
+                                    <div class="flex items-center gap-2 rounded-lg border border-gray-200 p-2 dark:border-white/10">
+                                        <img
+                                            x-show="item.isImage"
+                                            :src="item.url"
+                                            :alt="item.name"
+                                            class="h-10 w-10 shrink-0 rounded object-cover"
+                                        >
+                                        <div x-show="!item.isImage" class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-gray-100 dark:bg-white/10">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-gray-500 dark:text-gray-400">
+                                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+                                                <polyline points="14 2 14 8 20 8"></polyline>
+                                            </svg>
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <p class="truncate text-xs font-medium text-gray-700 dark:text-gray-200" x-text="item.name"></p>
+                                            <p class="text-xs text-gray-400" x-text="item.size"></p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            x-on:click="removeFile(index)"
+                                            x-show="!uploading"
+                                            class="text-xs text-danger-600 hover:underline"
+                                        >
+                                            {{ __('filament-max-chat::chat.remove_file') }}
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+
+                            @error('attachments')
                                 <p class="text-sm text-danger-600">{{ $message }}</p>
                             @enderror
-                            <x-filament::button type="submit" class="ml-auto">{{ __('filament-max-chat::chat.send') }}</x-filament::button>
+                            @error('attachments.*')
+                                <p class="text-sm text-danger-600">{{ $message }}</p>
+                            @enderror
                         </div>
                     </form>
                 @else
@@ -301,6 +371,7 @@
             window.__operatorChatReady = true;
 
             window.__fmcActiveChatId = @js($activeChatId);
+            window.__fmcInsertLinkPrompt = @js(__('filament-max-chat::chat.insert_link_prompt'));
 
             const subscribe = (root) => {
                 const channel = root.getAttribute('data-channel');
@@ -377,8 +448,18 @@
                 const start = textarea.selectionStart ?? textarea.value.length;
                 const end = textarea.selectionEnd ?? textarea.value.length;
                 const selected = textarea.value.slice(start, end);
-                const opening = button.getAttribute('data-wrap-start') ?? '';
+                let opening = button.getAttribute('data-wrap-start') ?? '';
                 const closing = button.getAttribute('data-wrap-end') ?? '';
+
+                if (button.hasAttribute('data-link')) {
+                    const url = window.prompt(window.__fmcInsertLinkPrompt || 'URL');
+
+                    if (url === null) {
+                        return;
+                    }
+
+                    opening = '<a href="' + url + '">';
+                }
 
                 textarea.value = textarea.value.slice(0, start) + opening + selected + closing + textarea.value.slice(end);
                 textarea.dispatchEvent(new Event('input'));
@@ -402,6 +483,142 @@
                 if (list) {
                     initScrollListener(list.getAttribute('wire:id'));
                 }
+            });
+
+            window.fmcFormatBytes = (bytes) => {
+                if (bytes === null || bytes === undefined) {
+                    return '';
+                }
+
+                if (bytes < 1024) {
+                    return bytes + ' B';
+                }
+
+                if (bytes < 1024 * 1024) {
+                    return (bytes / 1024).toFixed(1) + ' KB';
+                }
+
+                return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            };
+
+            window.__fmcSeq = 0;
+
+            window.fmcSanitizeHtml = (html) => {
+                const allowed = new Set(['p', 'br', 'b', 'strong', 'i', 'em', 'u', 'ins', 's', 'del', 'code', 'pre', 'mark', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'a']);
+                const dropWithContent = new Set(['script', 'style', 'iframe', 'object', 'embed', 'noscript']);
+                const safeSchemes = ['http:', 'https:', 'max:'];
+
+                const template = document.createElement('template');
+                template.innerHTML = html || '';
+
+                const clean = (node) => {
+                    Array.from(node.childNodes).forEach((child) => {
+                        if (child.nodeType !== 1) {
+                            return;
+                        }
+
+                        clean(child);
+
+                        const tag = child.tagName.toLowerCase();
+
+                        if (dropWithContent.has(tag)) {
+                            child.remove();
+
+                            return;
+                        }
+
+                        if (! allowed.has(tag)) {
+                            child.replaceWith(...Array.from(child.childNodes));
+
+                            return;
+                        }
+
+                        Array.from(child.attributes).forEach((attribute) => {
+                            if (tag === 'a' && attribute.name === 'href'
+                                && safeSchemes.some((scheme) => (attribute.value || '').toLowerCase().startsWith(scheme))) {
+                                return;
+                            }
+
+                            child.removeAttribute(attribute.name);
+                        });
+                    });
+                };
+
+                clean(template.content);
+
+                return template.innerHTML;
+            };
+
+            window.fmcReplyEditor = () => ({
+                preview: false,
+                raw: '',
+
+                get sanitizedPreview() {
+                    return window.fmcSanitizeHtml(this.raw);
+                },
+
+                togglePreview() {
+                    this.preview = !this.preview;
+
+                    if (this.preview && this.$refs.replyTextarea) {
+                        this.raw = this.$refs.replyTextarea.value;
+                    }
+                },
+            });
+
+            window.fmcFilePicker = () => ({
+                selected: [],
+                uploading: false,
+
+                onFilesSelected(event) {
+                    const files = Array.from(event.target.files || []);
+
+                    files.forEach((file) => {
+                        const isImage = file.type.startsWith('image/');
+
+                        this.selected.push({
+                            id: ++window.__fmcSeq,
+                            name: file.name,
+                            size: window.fmcFormatBytes(file.size),
+                            isImage,
+                            url: isImage ? URL.createObjectURL(file) : null,
+                            file,
+                        });
+                    });
+                },
+
+                syncUploaded() {
+                },
+
+                removeFile(index) {
+                    const item = this.selected[index];
+
+                    if (! item) {
+                        return;
+                    }
+
+                    if (item.url) {
+                        URL.revokeObjectURL(item.url);
+                    }
+
+                    this.selected.splice(index, 1);
+
+                    this.$wire.set('attachments', this.selected.map((entry) => entry.file));
+                },
+
+                reset() {
+                    this.selected.forEach((item) => {
+                        if (item.url) {
+                            URL.revokeObjectURL(item.url);
+                        }
+                    });
+
+                    this.selected = [];
+
+                    if (this.$refs.fileInput) {
+                        this.$refs.fileInput.value = '';
+                    }
+                },
             });
         }
     </script>

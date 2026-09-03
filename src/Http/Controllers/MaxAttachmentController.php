@@ -15,7 +15,7 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class MaxAttachmentController
 {
-    public function __invoke(Request $request, MaxMessage $message): Response
+    public function __invoke(Request $request, MaxMessage $message, int $index): Response
     {
         $user = $request->user();
 
@@ -28,8 +28,8 @@ class MaxAttachmentController
         $disk = Storage::disk(config()->string('filament-max-chat.attachments.disk', 'local'));
         $directory = rtrim(config()->string('filament-max-chat.attachments.directory', 'chat-attachments'), '/');
 
-        $meta = $message->attachment;
-        $path = is_array($meta) ? ($meta['path'] ?? null) : null;
+        $meta = $message->attachmentAt($index) ?? [];
+        $path = $meta['path'] ?? null;
 
         if (! is_string($path) || ! str_starts_with($path, $directory.'/')) {
             abort(404);

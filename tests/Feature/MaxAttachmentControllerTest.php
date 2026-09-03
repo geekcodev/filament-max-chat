@@ -25,15 +25,11 @@ class MaxAttachmentControllerTest extends TestCase
         Storage::disk('local')->put('chat-attachments/test.png', 'png-content');
 
         $message = $this->createMessage(attachment: [
-            'type' => 'image',
-            'path' => 'chat-attachments/test.png',
-            'name' => 'photo.png',
-            'mime' => 'image/png',
-            'size' => 11,
+            ['type' => 'image', 'path' => 'chat-attachments/test.png', 'name' => 'photo.png', 'mime' => 'image/png', 'size' => 11],
         ]);
 
         $response = $this->actingAs($this->createUser(canView: true))
-            ->get("/admin/chat/messages/{$message->id}/attachment");
+            ->get("/admin/chat/messages/{$message->id}/attachment/0");
 
         $response->assertOk();
         $this->assertSame('image/png', $response->headers->get('Content-Type'));
@@ -44,7 +40,7 @@ class MaxAttachmentControllerTest extends TestCase
     {
         $message = $this->createMessage();
 
-        $this->get("/admin/chat/messages/{$message->id}/attachment")
+        $this->get("/admin/chat/messages/{$message->id}/attachment/0")
             ->assertRedirect('/admin/login');
     }
 
@@ -53,31 +49,62 @@ class MaxAttachmentControllerTest extends TestCase
         $message = $this->createMessage();
 
         $this->actingAs($this->createUser())
-            ->get("/admin/chat/messages/{$message->id}/attachment")
+            ->get("/admin/chat/messages/{$message->id}/attachment/0")
             ->assertForbidden();
     }
 
     public function test_message_without_attachment_file_is_not_found(): void
     {
-        $message = $this->createMessage(attachment: ['type' => 'image']);
+        $message = $this->createMessage(attachment: [['type' => 'image']]);
 
         $this->actingAs($this->createUser(canView: true))
-            ->get("/admin/chat/messages/{$message->id}/attachment")
+            ->get("/admin/chat/messages/{$message->id}/attachment/0")
             ->assertNotFound();
     }
 
     public function test_message_with_valid_meta_but_missing_file_is_not_found(): void
     {
         $message = $this->createMessage(attachment: [
-            'type' => 'image',
-            'path' => 'chat-attachments/deleted.png',
-            'name' => 'photo.png',
-            'mime' => 'image/png',
-            'size' => 11,
+            ['type' => 'image', 'path' => 'chat-attachments/deleted.png', 'name' => 'photo.png', 'mime' => 'image/png', 'size' => 11],
         ]);
 
         $this->actingAs($this->createUser(canView: true))
-            ->get("/admin/chat/messages/{$message->id}/attachment")
+            ->get("/admin/chat/messages/{$message->id}/attachment/0")
+            ->assertNotFound();
+    }
+
+    public function test_multiple_attachments_served_by_index(): void
+    {
+        Storage::fake('local');
+        Storage::disk('local')->put('chat-attachments/first.png', 'first-content');
+        Storage::disk('local')->put('chat-attachments/second.png', 'second-content');
+
+        $message = $this->createMessage(attachment: [
+            ['type' => 'image', 'path' => 'chat-attachments/first.png', 'name' => 'first.png', 'mime' => 'image/png', 'size' => 13],
+            ['type' => 'image', 'path' => 'chat-attachments/second.png', 'name' => 'second.png', 'mime' => 'image/png', 'size' => 14],
+        ]);
+
+        $this->actingAs($this->createUser(canView: true));
+
+        $first = $this->get("/admin/chat/messages/{$message->id}/attachment/0");
+        $first->assertOk();
+        $this->assertStringContainsString('first-content', $first->streamedContent());
+
+        $second = $this->get("/admin/chat/messages/{$message->id}/attachment/1");
+        $second->assertOk();
+        $this->assertStringContainsString('second-content', $second->streamedContent());
+    }
+
+    public function test_out_of_range_index_is_not_found(): void
+    {
+        Storage::fake('local');
+
+        $message = $this->createMessage(attachment: [
+            ['type' => 'image', 'path' => 'chat-attachments/first.png', 'name' => 'first.png', 'mime' => 'image/png', 'size' => 13],
+        ]);
+
+        $this->actingAs($this->createUser(canView: true))
+            ->get("/admin/chat/messages/{$message->id}/attachment/5")
             ->assertNotFound();
     }
 
@@ -93,7 +120,7 @@ class MaxAttachmentControllerTest extends TestCase
     }
 
     /**
-     * @param  array<string, mixed>|null  $attachment
+     * @param  list<array<string, mixed>>|null  $attachment
      */
     private function createMessage(?array $attachment = null): MaxMessage
     {

@@ -108,10 +108,10 @@ class MaxChatSenderTest extends TestCase
         $sender = $this->createSenderWithResponses([]);
 
         $this->expectException(\RuntimeException::class);
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::File,
-            '/nonexistent/path/file.bin',
+            [UploadType::File],
+            ['/nonexistent/path/file.bin'],
         );
     }
 
@@ -121,10 +121,10 @@ class MaxChatSenderTest extends TestCase
         $sender = $this->createSenderWithResponses([]);
 
         $this->expectException(\RuntimeException::class);
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::File,
-            '/tmp/definitely-not-readable-'.mt_rand().'.bin',
+            [UploadType::File],
+            ['/tmp/definitely-not-readable-'.mt_rand().'.bin'],
         );
     }
 
@@ -146,10 +146,10 @@ class MaxChatSenderTest extends TestCase
 
         $sender = $this->createSenderWithResponses($this->attachmentResponses('img-token'));
 
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::Image,
-            $tmp,
+            [UploadType::Image],
+            [$tmp],
             'Photo caption',
         );
 
@@ -165,10 +165,10 @@ class MaxChatSenderTest extends TestCase
 
         $sender = $this->createSenderWithResponses($this->attachmentResponses('vid-token'));
 
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::Video,
-            $tmp,
+            [UploadType::Video],
+            [$tmp],
             'Video',
         );
 
@@ -184,10 +184,10 @@ class MaxChatSenderTest extends TestCase
 
         $sender = $this->createSenderWithResponses($this->attachmentResponses('aud-token'));
 
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::Audio,
-            $tmp,
+            [UploadType::Audio],
+            [$tmp],
             'Audio',
         );
 
@@ -203,10 +203,10 @@ class MaxChatSenderTest extends TestCase
 
         $sender = $this->createSenderWithResponses($this->attachmentResponses());
 
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::File,
-            $tmp,
+            [UploadType::File],
+            [$tmp],
         );
 
         @unlink($tmp);
@@ -221,10 +221,10 @@ class MaxChatSenderTest extends TestCase
 
         $sender = $this->createSenderWithResponses($this->attachmentResponses());
 
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::File,
-            $tmp,
+            [UploadType::File],
+            [$tmp],
             '',
         );
 
@@ -240,10 +240,10 @@ class MaxChatSenderTest extends TestCase
 
         $sender = $this->createSenderWithResponses($this->attachmentResponses('file-token'));
 
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::File,
-            $tmp,
+            [UploadType::File],
+            [$tmp],
             'Document',
         );
 
@@ -263,10 +263,10 @@ class MaxChatSenderTest extends TestCase
             self::messageResponse(),
         ]);
 
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::File,
-            $tmp,
+            [UploadType::File],
+            [$tmp],
             'Caption',
         );
 
@@ -285,13 +285,41 @@ class MaxChatSenderTest extends TestCase
         ]);
 
         $this->expectException(\Throwable::class);
-        $sender->sendAttachment(
+        $sender->sendAttachments(
             new Recipient(chatId: 1, userId: 1),
-            UploadType::Image,
-            $tmp,
+            [UploadType::Image],
+            [$tmp],
             'Test',
         );
 
         @unlink($tmp);
+    }
+
+    #[Test]
+    public function send_attachments_sends_multiple_media_and_single_message(): void
+    {
+        $tmpA = tempnam(sys_get_temp_dir(), 'test_');
+        file_put_contents($tmpA, 'image data');
+        $tmpB = tempnam(sys_get_temp_dir(), 'test_');
+        file_put_contents($tmpB, 'document data');
+
+        $sender = $this->createSenderWithResponses([
+            self::uploadStep1Response('tok-a'),
+            self::uploadStep2Response('tok-a'),
+            self::uploadStep1Response('tok-b'),
+            self::uploadStep2Response('tok-b'),
+            self::messageResponse(),
+        ]);
+
+        $sender->sendAttachments(
+            new Recipient(chatId: 1, userId: 1),
+            [UploadType::Image, UploadType::File],
+            [$tmpA, $tmpB],
+            'Two files',
+        );
+
+        @unlink($tmpA);
+        @unlink($tmpB);
+        $this->expectNotToPerformAssertions();
     }
 }
