@@ -55,6 +55,44 @@ class MaxMessageService
     }
 
     /**
+     * Сохранить входящее пользовательское сообщение с произвольным текстом
+     * (не из апдейта): заявки/leads, «Позвать оператора» и пр.
+     * Обновляет профиль max_users (имя чата) из переданного User либо из реестра,
+     * сохраняет сообщение как непрочитанное входящее (direction=In, sender=User).
+     * В MAX ничего не отправляется — только история + broadcast.
+     *
+     * @param string|null $messageId внешний message_id (уникальность/источник)
+     */
+    public function storeIncomingForUser(
+        int $userId,
+        int $chatId,
+        ?User $user,
+        ?string $text,
+        ?string $messageId = null,
+    ): ?MaxMessage {
+        $user ??= $this->userFromRegistry($userId);
+
+        if ($user === null) {
+            $this->logger->log('warning', 'Incoming MAX message for user skipped: profile unavailable.', [
+                'user_id' => $userId,
+                'chat_id' => $chatId,
+            ]);
+
+            return null;
+        }
+
+        $maxChat = $this->upsertChat($userId, $chatId, $user);
+
+        return $this->createMessage(
+            maxChat: $maxChat,
+            direction: MaxMessageDirection::In,
+            senderType: MaxMessageSender::User,
+            text: $text,
+            messageId: $messageId,
+        );
+    }
+
+    /**
      * @param array{type: string, path?: string, name?: string, mime?: string, size?: int}|null $attachment
      */
     public function storeOutgoing(
@@ -242,6 +280,25 @@ class MaxMessageService
     {
         /** @var class-string<MaxChat> */
         return config()->string('filament-max-chat.chat_model', MaxChat::class);
+    }
+
+    private function userFromRegistry(int $userId): ?User
+    {
+        $record = MaxUser::query()->find($userId);
+
+        if ($record === null) {
+            return null;
+        }
+
+        return new User(
+            userId: (int) $record->user_id,
+            firstName: (string) $record->first_name,
+            lastName: $record->last_name,
+            username: $record->username,
+            isBot: (bool) $record->is_bot,
+            lastActivityTime: $record->last_activity_time !== null ? (int) $record->last_activity_time : null,
+            name: $record->name,
+        );
     }
 
     private function upsertChat(int $userId, int $chatId, ?User $user = null): MaxChat

@@ -112,26 +112,26 @@
                     </div>
                 </div>
                 @if ($this->canAnswer)
-                    <button
-                        type="button"
-                        wire:click="removeChat"
-                        x-data
-                        x-on:click="if (! confirm('{{ __('filament-max-chat::chat.remove_chat_confirm') }}')) { $event.preventDefault(); }"
-                        class="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-300"
-                        title="{{ __('filament-max-chat::chat.remove_chat') }}"
-                    >
-                        <x-heroicon-o-x-circle class="h-4 w-4" />
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="clearChat"
-                        x-data
-                        x-on:click="if (! confirm('{{ __('filament-max-chat::chat.clear_confirm') }}')) { $event.preventDefault(); }"
-                        class="shrink-0 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-300"
-                        title="{{ __('filament-max-chat::chat.clear_history') }}"
-                    >
-                        <x-heroicon-o-trash class="h-4 w-4" />
-                    </button>
+                    <div class="flex shrink-0 items-center gap-1">
+                        <button
+                            type="button"
+                            wire:click="removeChat"
+                            wire:confirm="{{ __('filament-max-chat::chat.remove_chat_confirm') }}"
+                            class="shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-red-100 hover:text-red-600 dark:text-white dark:hover:bg-red-950 dark:hover:text-red-400"
+                            title="{{ __('filament-max-chat::chat.remove_chat') }}"
+                        >
+                            <x-heroicon-o-x-circle class="h-5 w-5" />
+                        </button>
+                        <button
+                            type="button"
+                            wire:click="clearChat"
+                            wire:confirm="{{ __('filament-max-chat::chat.clear_confirm') }}"
+                            class="shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-red-100 hover:text-red-600 dark:text-white dark:hover:bg-red-950 dark:hover:text-red-400"
+                            title="{{ __('filament-max-chat::chat.clear_history') }}"
+                        >
+                            <x-heroicon-o-trash class="h-5 w-5" />
+                        </button>
+                    </div>
                 @endif
             </div>
             <div id="chat-messages" class="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -165,8 +165,7 @@
                                 <button
                                     type="button"
                                     wire:click="deleteMessage({{ $message->id }})"
-                                    x-data
-                                    x-on:click="if (! confirm('{{ __('filament-max-chat::chat.delete_confirm') }}')) { $event.preventDefault(); }"
+                                    wire:confirm="{{ __('filament-max-chat::chat.delete_confirm') }}"
                                     class="absolute -top-2 -right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-400 opacity-0 shadow-sm transition-opacity pointer-events-none hover:bg-red-500 hover:text-white group-hover:opacity-100 group-hover:pointer-events-auto dark:bg-gray-700 dark:text-gray-500 dark:hover:bg-red-600"
                                     title="{{ __('filament-max-chat::chat.delete_message') }}"
                                 >

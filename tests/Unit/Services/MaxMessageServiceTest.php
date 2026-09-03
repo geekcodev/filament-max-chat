@@ -14,6 +14,7 @@ use GeekCo\FilamentMaxChat\Services\MaxChatSender;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\LaravelMaxClient\Models\MaxUser as RegistryMaxUser;
 use GeekCo\MaxPhpClient\Dto\Attachment;
 use GeekCo\MaxPhpClient\Dto\ImageAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\Message;
@@ -158,6 +159,120 @@ class MaxMessageServiceTest extends TestCase
 
         $this->assertNotNull($messageOperator);
         $this->assertSame($messageOperator->getKey(), $operator->getKey());
+    }
+
+    public function test_store_incoming_for_user_creates_incoming_message_with_text(): void
+    {
+        $message = app(MaxMessageService::class)->storeIncomingForUser(
+            userId: 111,
+            chatId: 222,
+            user: $this->maxUser(),
+            text: 'Заявка #42: замена крана',
+        );
+
+        $this->assertNotNull($message);
+        $this->assertDatabaseHas('max_chat_messages', [
+            'id' => $message->id,
+            'direction' => MaxMessageDirection::In->value,
+            'sender_type' => MaxMessageSender::User->value,
+            'text' => 'Заявка #42: замена крана',
+            'user_id' => 111,
+            'chat_id' => 222,
+        ]);
+        $this->assertNull($message->read_at);
+        $this->assertNull($message->operator_id);
+        $this->assertSame(1, MaxChat::query()->count());
+    }
+
+    public function test_store_incoming_for_user_updates_max_users_name_from_passed_user(): void
+    {
+        app(MaxMessageService::class)->storeIncomingForUser(
+            userId: 111,
+            chatId: 222,
+            user: $this->maxUser(),
+            text: 'Заявка',
+        );
+
+        $this->assertDatabaseHas('max_users', [
+            'user_id' => 111,
+            'first_name' => 'Иван',
+            'last_name' => 'Петров',
+            'username' => 'ivan_p',
+        ]);
+    }
+
+    public function test_store_incoming_for_user_resolves_profile_from_registry(): void
+    {
+        RegistryMaxUser::query()->create([
+            'user_id' => 111,
+            'first_name' => 'Иван',
+            'last_name' => 'Петров',
+            'username' => 'ivan_p',
+            'is_bot' => false,
+        ]);
+
+        $message = app(MaxMessageService::class)->storeIncomingForUser(
+            userId: 111,
+            chatId: 222,
+            user: null,
+            text: 'Заявка без профиля в вебхуке',
+        );
+
+        $this->assertNotNull($message);
+        $this->assertDatabaseHas('max_chat_messages', [
+            'id' => $message->id,
+            'direction' => MaxMessageDirection::In->value,
+            'text' => 'Заявка без профиля в вебхуке',
+            'user_id' => 111,
+            'chat_id' => 222,
+        ]);
+    }
+
+    public function test_store_incoming_for_user_returns_null_without_user_or_registry(): void
+    {
+        $result = app(MaxMessageService::class)->storeIncomingForUser(
+            userId: 111,
+            chatId: 222,
+            user: null,
+            text: 'Без профиля',
+        );
+
+        $this->assertNull($result);
+        $this->assertDatabaseCount('max_chat_messages', 0);
+        $this->assertDatabaseCount('max_chats', 0);
+    }
+
+    public function test_store_incoming_for_user_stores_message_id(): void
+    {
+        $message = app(MaxMessageService::class)->storeIncomingForUser(
+            userId: 111,
+            chatId: 222,
+            user: $this->maxUser(),
+            text: 'Заявка',
+            messageId: 'lead-42',
+        );
+
+        $this->assertNotNull($message);
+        $this->assertSame('lead-42', $message->message_id);
+    }
+
+    public function test_store_incoming_for_user_dispatches_created_event(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([MaxMessageCreated::class]);
+
+        $message = app(MaxMessageService::class)->storeIncomingForUser(
+            userId: 111,
+            chatId: 222,
+            user: $this->maxUser(),
+            text: 'Заявка',
+        );
+
+        $this->assertNotNull($message);
+
+        \Illuminate\Support\Facades\Event::assertDispatched(
+            MaxMessageCreated::class,
+            static fn (MaxMessageCreated $event): bool => $event->message->is($message),
+        );
     }
 
     public function test_conversations_returns_chats_with_unread_and_last_message(): void
