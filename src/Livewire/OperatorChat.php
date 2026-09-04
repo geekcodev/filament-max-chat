@@ -33,6 +33,8 @@ class OperatorChat extends Component
 
     public string $reply = '';
 
+    public string $search = '';
+
     /** @var list<TemporaryUploadedFile> */
     public array $attachments = [];
 
@@ -179,13 +181,58 @@ class OperatorChat extends Component
     #[Computed]
     public function conversations(): Collection
     {
-        $conversations = $this->service?->conversations() ?? new Collection();
+        $search = trim($this->search);
+
+        $conversations = $search !== '' && mb_strlen($search) >= 2
+            ? $this->service?->searchConversations($search) ?? new Collection()
+            : $this->service?->conversations() ?? new Collection();
 
         if ($this->prefetchIncludes('on_list')) {
             $this->profileRefresher?->refreshForConversations($conversations);
         }
 
         return $conversations;
+    }
+
+    public function markHighlighted(?string $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        $search = trim($this->search);
+
+        if ($search === '' || mb_strlen($search) < 2) {
+            return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+        }
+
+        $escaped = preg_quote($search, '/');
+        $pattern = '/(' . $escaped . ')/iu';
+        $html = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+
+        return (string) preg_replace_callback($pattern, static function (array $matches): string {
+            return '<mark class="bg-yellow-200 dark:bg-yellow-800/60 rounded px-0.5">' . htmlspecialchars($matches[1], ENT_QUOTES, 'UTF-8') . '</mark>';
+        }, $html);
+    }
+
+    /**
+     * Single conversation for the active chat header, resolved independently
+     * of the search-filtered list so the header stays populated even when a
+     * search excludes the currently open chat.
+     */
+    #[Computed]
+    public function activeConversation(): ?MaxChat
+    {
+        if ($this->activeChatId === null) {
+            return null;
+        }
+
+        $conversations = $this->service?->conversations() ?? new Collection();
+
+        /** @var MaxChat|null $chat */
+        $chat = $conversations->firstWhere('id', $this->activeChatId);
+
+        return $chat;
     }
 
     #[Computed]

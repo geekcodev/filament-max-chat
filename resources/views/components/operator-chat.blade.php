@@ -9,6 +9,15 @@
     wire:poll.{{ $pollInterval }}="refresh"
 >
     <div class="w-80 shrink-0 overflow-y-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
+        <div class="border-b border-gray-100 px-3 py-2 dark:border-white/5">
+            <input
+                type="search"
+                wire:model.live.debounce.300ms="search"
+                placeholder="{{ __('filament-max-chat::chat.search_placeholder') }}"
+                maxlength="100"
+                class="block w-full rounded-lg border-gray-300 bg-gray-50 px-3 py-1.5 text-sm text-gray-950 shadow-sm transition duration-75 placeholder:text-gray-400 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-gray-500"
+            >
+        </div>
         @forelse ($this->conversations as $chat)
             <button
                 type="button"
@@ -25,13 +34,13 @@
                 @endif
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-2">
-                        <span class="truncate text-sm font-medium text-gray-950 dark:text-white">{{ $chat->conversationName() }}</span>
+                        <span class="truncate text-sm font-medium text-gray-950 dark:text-white">{!! $this->markHighlighted($chat->conversationName()) !!}</span>
                         @if ($chat->lastMessage?->created_at)
                             <span class="shrink-0 text-xs text-gray-400">{{ $chat->lastMessage->created_at->diffForHumans() }}</span>
                         @endif
                     </div>
                     <p class="mt-0.5 truncate text-sm text-gray-500 dark:text-gray-400">
-                        {{ $chat->lastMessage?->previewText() }}
+                        {!! $this->markHighlighted($chat->lastMessage?->previewText()) !!}
                     </p>
                 </div>
                 @if (($chat->unread_count ?? 0) > 0)
@@ -41,7 +50,11 @@
                 @endif
             </button>
         @empty
-            <p class="px-4 py-8 text-center text-sm text-gray-500">{{ __('filament-max-chat::chat.empty_conversations') }}</p>
+            @if (trim($this->search) !== '')
+                <p class="px-4 py-8 text-center text-sm text-gray-500">{{ __('filament-max-chat::chat.no_search_results') }}</p>
+            @else
+                <p class="px-4 py-8 text-center text-sm text-gray-500">{{ __('filament-max-chat::chat.empty_conversations') }}</p>
+            @endif
         @endforelse
     </div>
 
@@ -51,7 +64,7 @@
                 {{ __('filament-max-chat::chat.select_conversation') }}
             </div>
         @else
-            @php($activeChat = $this->conversations->firstWhere('id', $activeChatId))
+            @php($activeChat = $this->activeConversation)
             @php($chatUser = $activeChat?->maxUser)
             <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-white/5">
                 <div class="flex min-w-0 items-center gap-2" x-data="{ showUserInfo: false }">
