@@ -30,6 +30,7 @@ return [
     'fallback_user' => 'Пользователь :id',
 
     'empty_conversations' => 'Нет активных диалогов',
+    'no_search_results' => 'Ничего не найдено по запросу',
     'select_conversation' => 'Выберите диалог слева',
     'empty_messages' => 'Сообщений пока нет',
     'load_older' => '↑ Загрузить более ранние сообщения',
@@ -64,4 +65,6 @@ return [
     'notification_sound_off' => 'Звуковые оповещения: выкл',
 
     'close' => 'Закрыть',
+
+    'search_placeholder' => 'Поиск…',
 ];

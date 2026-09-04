@@ -136,6 +136,58 @@ class MaxMessageService
     }
 
     /**
+     * @return Collection<int, MaxChat>
+     */
+    public function searchConversations(string $term): Collection
+    {
+        $term = trim($term);
+
+        if ($term === '') {
+            return new Collection();
+        }
+
+        $escaped = str_replace(
+            ['\\', '!', '%', '_'],
+            ['\\\\', '!!', '!%', '!_'],
+            $term,
+        );
+
+        $like = '%' . $escaped . '%';
+
+        /** @var class-string<MaxChat> $chatModelClass */
+        $chatModelClass = $this->chatModel();
+
+        $chatIds = DB::table('max_chats')
+            ->join('max_users', 'max_users.user_id', '=', 'max_chats.user_id')
+            ->leftJoin('max_chat_messages', 'max_chat_messages.max_chat_id', '=', 'max_chats.id')
+            ->where('max_chats.status', MaxChatStatus::Active)
+            ->where(function (\Illuminate\Database\Query\Builder $query) use ($like): void {
+                $query->whereRaw('max_users.first_name LIKE ? ESCAPE \'!\'', [$like])
+                    ->orWhereRaw('max_users.last_name LIKE ? ESCAPE \'!\'', [$like])
+                    ->orWhereRaw('max_chat_messages.text LIKE ? ESCAPE \'!\'', [$like]);
+            })
+            ->orderByDesc('max_chats.last_activity_at')
+            ->pluck('max_chats.id');
+
+        if ($chatIds->isEmpty()) {
+            return new Collection();
+        }
+
+        return $chatModelClass::query()
+            ->whereIn('id', $chatIds)
+            ->where('status', MaxChatStatus::Active)
+            ->withCount([
+                'messages as unread_count' => static function (Builder $query): void {
+                    $query->where('direction', MaxMessageDirection::In)
+                        ->whereNull('read_at');
+                },
+            ])
+            ->with(['lastMessage', 'maxUser'])
+            ->orderByDesc('last_activity_at')
+            ->get();
+    }
+
+    /**
      * По search-поиску `chat_id` (идентификатор чата в MAX) вернуть внутренний
      * ID записи реестра max_chats. Позволяет открывать диалог по ссылке
      * с внешних страниц: /chat?chat_id=<id в MAX>.

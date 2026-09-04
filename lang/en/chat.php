@@ -30,6 +30,7 @@ return [
     'fallback_user' => 'User :id',
 
     'empty_conversations' => 'No active conversations',
+    'no_search_results' => 'No results found for your search',
     'select_conversation' => 'Select a conversation on the left',
     'empty_messages' => 'No messages yet',
     'load_older' => '↑ Load older messages',
@@ -64,4 +65,6 @@ return [
     'notification_sound_off' => 'Sound notifications: off',
 
     'close' => 'Close',
+
+    'search_placeholder' => 'Search…',
 ];

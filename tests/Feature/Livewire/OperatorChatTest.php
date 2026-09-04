@@ -752,6 +752,130 @@ class OperatorChatTest extends TestCase
             ->assertHasNoErrors('attachments');
     }
 
+    public function test_search_filters_conversations_by_name(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Любой текст');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->set('search', 'Иван')
+            ->assertSee('Иван');
+    }
+
+    public function test_search_filters_conversations_by_message_text(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Хочу купить дрон');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->set('search', 'дрон')
+            ->assertSee('Иван');
+    }
+
+    public function test_search_hides_irrelevant_conversations(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Обычное сообщение');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->set('search', 'несуществующий')
+            ->assertDontSee('Иван');
+    }
+
+    public function test_active_conversation_header_stays_populated_during_excluding_search(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Иван спрашивает');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->id])
+            ->set('search', 'несуществующий')
+            ->assertSet('activeChatId', $chat->id)
+            ->assertSee('Иван')
+            ->assertSet('activeConversation.id', $chat->id);
+    }
+
+    public function test_search_ignores_shorter_than_two_characters(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Нет совпадения');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->set('search', 'И')
+            ->assertSee('Иван');
+    }
+
+    public function test_mark_highlighted_wraps_matching_term(): void
+    {
+        $staff = $this->createStaff();
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->set('search', 'Петр');
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $result = $instance->markHighlighted('Иван Петров');
+
+        $this->assertStringContainsString('<mark class="bg-yellow-200 dark:bg-yellow-800/60 rounded px-0.5">Петр</mark>', $result);
+    }
+
+    public function test_mark_highlighted_escapes_html_in_value(): void
+    {
+        $staff = $this->createStaff();
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->set('search', 'x');
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $result = $instance->markHighlighted('<script>alert(1)</script>');
+
+        $this->assertStringNotContainsString('<script>', $result);
+        $this->assertStringContainsString('&lt;script&gt;', $result);
+    }
+
+    public function test_mark_highlighted_without_search_escapes_but_does_not_mark(): void
+    {
+        $staff = $this->createStaff();
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class);
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $result = $instance->markHighlighted('Иван Петров');
+
+        $this->assertSame('Иван Петров', $result);
+    }
+
+    public function test_mark_highlighted_returns_empty_for_null(): void
+    {
+        $staff = $this->createStaff();
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->set('search', 'Петр');
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $this->assertSame('', $instance->markHighlighted(null));
+    }
+
     private function createUser(bool $canView = false, bool $canAnswer = false): TestUser
     {
         return TestUser::query()->create([

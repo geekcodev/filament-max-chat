@@ -310,6 +310,87 @@ class MaxMessageServiceTest extends TestCase
         $this->assertCount(0, $service->conversations());
     }
 
+    public function test_search_conversations_finds_by_user_name(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Любой текст'));
+
+        $found = $service->searchConversations('Петр');
+
+        $this->assertCount(1, $found);
+
+        $chat = $found->first();
+        $this->assertNotNull($chat);
+        $this->assertSame('Иван Петров', $chat->conversationName());
+    }
+
+    public function test_search_conversations_finds_by_message_text(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Хочу купить дрон'));
+
+        $found = $service->searchConversations('дрон');
+
+        $this->assertCount(1, $found);
+        $this->assertNotNull($found->first()?->lastMessage);
+    }
+
+    public function test_search_conversations_returns_empty_when_no_match(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Просто сообщение'));
+
+        $this->assertCount(0, $service->searchConversations('несуществующий'));
+    }
+
+    public function test_search_conversations_returns_empty_for_blank_term(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Сообщение'));
+
+        $this->assertTrue($service->searchConversations('   ')->isEmpty());
+    }
+
+    public function test_search_conversations_excludes_non_active_chats(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Ищу по имени Петр'));
+
+        MaxChat::query()->firstOrFail()->update(['status' => MaxChatStatus::Removed]);
+
+        $this->assertCount(0, $service->searchConversations('Петр'));
+    }
+
+    public function test_search_conversations_returns_one_chat_once_per_relation_match(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Петр'));
+        $service->storeIncoming($this->incomingUpdate('Петр снова'));
+        $service->storeOutgoing(111, 222, 'Петр ответ', MaxMessageSender::Bot);
+
+        $found = $service->searchConversations('Петр');
+
+        $this->assertCount(1, $found);
+    }
+
+    public function test_search_conversations_treats_percent_as_literal(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Скидка 50% сегодня'));
+
+        $this->assertCount(1, $service->searchConversations('50%'));
+        $this->assertCount(0, $service->searchConversations('50today'));
+    }
+
+    public function test_search_conversations_treats_underscore_as_literal(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Промокод HOLIDAY_2026'));
+
+        $this->assertCount(1, $service->searchConversations('HOLIDAY_2026'));
+        $this->assertCount(0, $service->searchConversations('HOLIDAYX2026'));
+    }
+
     public function test_messages_for_returns_chronological_messages(): void
     {
         $service = app(MaxMessageService::class);
