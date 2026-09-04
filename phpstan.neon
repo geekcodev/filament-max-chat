@@ -22,10 +22,6 @@ parameters:
             paths:
                 - src/Livewire/OperatorChat.php
         -
-            message: '#Unable to resolve the template type TComponent in call to method#'
-            paths:
-                - tests
-        -
             message: '#Cannot call method (assertSet|assertSee|assertHasErrors|assertHasNoErrors|call)\(\) on mixed\.#'
             paths:
                 - tests
