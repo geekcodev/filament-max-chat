@@ -21,8 +21,8 @@ Filament-плагин: **чат оператора** с пользователя
 
 - PHP ^8.4, Laravel ^13.0
 - Filament ^5.0 (панель v5), Livewire ^4.1
-- `geekcodev/laravel-max-client` ^1.1.0 + `geekcodev/max-php-client` ^1.0.9
-- Опубликованные миграции laravel-max-client (`max_users`, `max_chats`)
+- `geekcodev/laravel-max-client` ^1.2.0 + `geekcodev/max-php-client` ^1.1.8
+- Миграции laravel-max-client (`max_users`, `max_chats`, `max_chat_users`)
 - Для real-time: совместимый broadcaster (например, Laravel Reverb) и `window.Echo` в панели
 
 ## Установка
@@ -103,6 +103,7 @@ php artisan vendor:publish --tag=filament-max-chat-views    # views для пр�
 ## Архитектура
 
 - `Services\MaxMessageService` — история сообщений (`storeIncoming`, `storeOutgoing`, `conversations`, `markRead`);
+- `Console\MaxChatUpgradeCommand` (`max-chat:upgrade`) — перевод истории переписки на форму реестра чатов v1.2.0;
 - `Services\MaxChatSender` — отправка ответов (`sendFormatted`, `sendAttachment`) через ApiClient;
 - `Services\MaxAttachmentStore` — приватное хранение вложений (метаданные в JSON-колонке);
 - `Support\TextSanitizer` — санитизация HTML под whitelist тегов MAX (TextFormat: html);
@@ -110,8 +111,17 @@ php artisan vendor:publish --tag=filament-max-chat-views    # views для пр�
 - `Livewire\OperatorChat` (алиас `filament-max-chat`) + `Pages\OperatorChat`.
 
 Модель `Models\MaxChat` расширяет `GeekCo\LaravelMaxClient\Models\MaxChat` связями
-`messages`/`lastMessage`/`maxUser` и работает с той же таблицей `max_chats` — реестр чатов клиента (`chats.enabled` /
+`messages`/`lastMessage` и работает с той же таблицей `max_chats` — реестр чатов клиента (`chats.enabled` /
 `MAX_CHATS_ENABLED`) продолжает работать без изменений.
+
+С laravel-max-client v1.2.0 в `max_chats` одна строка на чат, первичный ключ — сам `chat_id`, а пользователи чата
+лежат в `max_chat_users`. Поэтому в `max_chat_messages.max_chat_id` хранится `chat_id` чата в MAX, а собеседник
+оператора берётся через `interlocutor()` (первый пользователь чата, который не бот). Связи `maxUser()` и колонки
+`max_chats.user_id` больше нет. Название для интерфейса даёт `displayName()` — у группы и канала это `title` из
+`getChat()`, у диалога имя собеседника.
+
+`MaxMessageService` сам заводит связь «чат — пользователь» в `max_chat_users` при сохранении сообщения: ответы
+оператора и `storeIncomingForUser()` приходят без апдейта MAX, где эту связь обычно регистрирует слушатель пакета.
 
 Кнопка «Очистить историю» удаляет только сообщения диалога (через `MaxMessageService::clearHistory`). Отдельное действие
 «Удалить чат» (`MaxMessageService::removeChat`) помечает запись реестра статусом `removed` — диалог исчезает из списка
@@ -123,11 +133,13 @@ php artisan vendor:publish --tag=filament-max-chat-views    # views для пр�
 
 ## Открытие конкретного чата по ссылке
 
-На страницу чата можно вести прямую ссылку на конкретный диалог с внешних страниц — по идентификатору чата MAX
-(`chat_id`) либо по внутреннему ID записи `max_chats`:
+На страницу чата можно вести прямую ссылку на конкретный диалог с внешних страниц — по идентификатору чата в MAX:
 
-- `/admin/chat?chat_id=<id чата в MAX>` — плагин сам найдёт запись реестра по `chat_id` и откроет диалог;
-- `/admin/chat?chat=<id max_chats>` — обратная совместимость, открытие по внутреннему ID записи.
+- `/admin/chat?chat_id=<id чата в MAX>` — плагин найдёт запись реестра по `chat_id` и откроет диалог;
+- `/admin/chat?chat=<id чата в MAX>` — алиас того же параметра для обратной совместимости.
+
+С версии 1.1.0 внутреннего ID записи реестра нет: первичный ключ `max_chats` — сам `chat_id`, поэтому оба параметра
+значат одно и то же.
 
 Пример сформировать такую ссылку из вашего кода:
 
@@ -137,6 +149,44 @@ route(OperatorChat::getRouteName(), ['chat_id' => $chat->chat_id])
 
 Если `chat_id` не найден в реестре `max_chats`, страница откроется как обычно (без активного диалога) — это безопасно
 при прямом переходе по ссылке.
+
+## Обновление с v1.0.x на v1.1.0 (новая схема реестра чатов)
+
+laravel-max-client v1.2.0 перестроил реестр чатов: вместо строки на пару «пользователь + чат» в `max_chats` стало
+одна строка на чат с первичным ключом `chat_id`, а связи с пользователями вынесены в `max_chat_users`. Пересборку
+таблицы делает команда адаптера `php artisan max:upgrade`.
+
+```bash
+composer require geekcodev/filament-max-chat:^1.1.0
+php artisan migrate          # создаёт max_chat_users и переносит max_chat_messages.max_chat_id на chat_id
+php artisan max-chat:upgrade # пересобирает реестр и возвращает FK на max_chats.chat_id
+```
+
+Команда `max-chat:upgrade` сама зовёт `max:upgrade` адаптера между своими двумя фазами, поэтому запускать адаптер
+отдельно не нужно. Если предпочтительнее сделать это в два шага, так тоже правильно:
+
+```bash
+php artisan migrate
+php artisan max:upgrade
+php artisan max-chat:upgrade
+```
+
+Порядок обязателен и продиктован ограничениями СУБД:
+
+- пока на `max_chats` висит FK из `max_chat_messages` со суррогатной `id`, пересборка таблицы падает с ошибкой
+  `cannot drop table max_chats because other objects depend on it` — поэтому FK снимается заранее, миграцией
+  `0001_01_01_000002_repoint_max_chat_messages_fk` (она же переносит значения и расширяет колонки);
+- перенести значения надо до пересборки: соответствие «старый `id` → `chat_id`» после неё исчезает вместе с колонкой
+  `id`;
+- вернуть FK на `max_chats.chat_id` можно только после пересборки, когда эта колонка станет первичным ключом, —
+  поэтому это вторая фаза, то есть шаг после `max:upgrade`.
+
+Значения переносятся через временную таблицу соответствия одним запросом, поэтому перевод работает и на MySQL,
+и на PostgreSQL, и на SQLite. На чистой установке обе фазы ничего не делают. Откатить сами значения нельзя: после
+`max:upgrade` колонки `max_chats.id` больше нет, поэтому `down()` миграции схему не трогает.
+
+Если своя модель чата или свои запросы к `max_chats`, проверьте их после обновления: колонки `max_chats.id` и
+`max_chats.user_id` больше нет, а `max_chat_messages.max_chat_id` содержит `chat_id` чата в MAX.
 
 ## Обновление с v1.x (миграция `max_bot_chats` → `max_chats`)
 

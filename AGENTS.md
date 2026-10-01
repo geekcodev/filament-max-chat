@@ -8,9 +8,9 @@
 ## 1. О проекте
 
 - **Что это.** Filament-плагин **`geekcodev/filament-max-chat`** — **чат оператора** с пользователями MAX-мессенджера
-  внутри Filament-панели. Строится поверх `geekcodev/laravel-max-client` (реестр чатов `max_chats`/`max_users`,
-  вебхук-доставка апдейтов) и ядра `geekcodev/max-php-client` (Bot API MAX). Репозиторий/рабочая папка —
-  `filament-max-chat`.
+  внутри Filament-панели. Строится поверх `geekcodev/laravel-max-client` (реестр чатов `max_chats`/`max_users`/
+  `max_chat_users`, вебхук-доставка апдейтов) и ядра `geekcodev/max-php-client` (Bot API MAX). Репозиторий/рабочая
+  папка — `filament-max-chat`.
 - **Принцип.** Плагин — только UI и история переписки: страница `/admin/chat`, Livewire-компонент, хранение
   `max_chat_messages`, приватное хранение вложений, broadcast-событие. Бизнес-обработка входящих апдейтов MAX остаётся в
   host-приложении — оно вызывает `MaxMessageService::storeIncoming()`. Не дублировать механизмы laravel-max-client.
@@ -54,12 +54,14 @@ src/
   FilamentMaxChatPlugin.php           Filament v5 plugin: страница чата в панели
   Pages/OperatorChat.php              страница панели (доступ permissions.view)
   Livewire/OperatorChat.php           состояние чата: диалоги, лента, ответ, вложения (алиас filament-max-chat)
+  Console/MaxChatUpgradeCommand.php перевод истории переписки на форму реестра v1.2.0 (max-chat:upgrade)
   Services/
     MaxMessageService.php            история: storeIncoming/storeOutgoing/conversations/messagesFor/markRead
+    ChatMessagesSchemaRepoint.php    две фазы перевода max_chat_messages: remap() и repin()
     MaxChatSender.php                 отправка в MAX: sendFormatted (HTML) / sendAttachment (uploadMedia)
     MaxAttachmentStore.php            приватное хранение вложений (метаданные в JSON-колонке attachment)
   Support/TextSanitizer.php           санитизация HTML под whitelist тегов MAX + toMaxHtml()
-  Models/MaxChat.php                  расширение пакетной модели клиента (связи messages/lastMessage/maxUser)
+  Models/MaxChat.php                  расширение пакетной модели клиента (messages/lastMessage, interlocutor, displayName)
   Models/MaxMessage.php              модель max_chat_messages
   Events/MaxMessageCreated.php       ShouldBroadcast в private-канал chat.channel
   Enums/{MaxMessageDirection,MaxMessageSender}.php
@@ -67,6 +69,8 @@ src/
   Http/Controllers/UnreadCountController.php     JSON-счётчик непрочитанного (HTTP-poll уведомлений на всех страницах)
 tests/                             PHPUnit + Orchestra Testbench
   Fixtures/                           AdminPanelProvider, TestUser, миграция users, Gate chat.view/chat.answer
+  Support/MakesChats.php              фикстуры реестра чатов под схему v1.2.0 (makeChat, linkChatUser, makeChatWithUser)
+  Support/InspectsChatSchema.php      чтение внешних ключей таблицы для тестов миграции и команды перевода
   Unit/                               TextSanitizer, MaxAttachmentStore, MaxMessageService
   Feature/                            Livewire OperatorChat, MaxAttachmentController
 Dockerfile                         PHP 8.4 (ghcr.io/geekcodev/php) + опциональный Xdebug
@@ -98,9 +102,20 @@ phpstan.neon                       level max (Larastan), configDirectories → c
   на всех страницах панели: Echo + HTTP-poll (`GET route.unread_count_uri` →
   `UnreadCountController`, JSON `{unread_count, latest_max_chat_id}`, интервал `notifications.poll_interval_seconds`).
 - **Переопределение моделей**: `chat_model` — подкласс пакетного `Models\MaxChat` (таблица `max_chats`);
-  `user_model` — модель оператора для связи `operator_id`.
-- **Миграция** `0001_01_01_000001_create_max_chat_messages_table.php` грузится автоматически из пакета; FK на
-  `max_chats` требует опубликованных миграций laravel-max-client (см. README «Требования»).
+  `user_model` — модель оператора для связи `operator_id`. Модель связи чата и пользователя берётся из
+  `laravel-max-client.chats.chat_users_model`.
+- **Миграции** грузятся автоматически из пакета: `0001_01_01_000001_create_max_chat_messages_table.php` создаёт
+  `max_chat_messages`, `0001_01_01_000002_repoint_max_chat_messages_fk.php` выполняет первую фазу перевода
+  (`ChatMessagesSchemaRepoint::remap()`). FK требует миграций laravel-max-client (`max_chats`, `max_chat_users`).
+- **Схема v1.2.0 адаптера**: в `max_chats` одна строка на чат, первичный ключ — `chat_id`, колонок `id`/`user_id` нет;
+  пользователи чата лежат в `max_chat_users`. Значит `max_chat_messages.max_chat_id` содержит `chat_id` чата в MAX,
+  а собеседник оператора берётся через `MaxChat::interlocutor()` (первый не-бот в `chatUsers`).
+- **Порядок обновления существующей установки**: `php artisan migrate`, затем `php artisan max-chat:upgrade`
+  (внутри зовёт `max:upgrade`). Три ограничения СУБД по порядку: FK надо снять до пересборки `max_chats`, значения
+  перенести до неё же (соответствие «старый id → chat_id» исчезает с колонкой `id`), а вернуть FK на
+  `max_chats.chat_id` — только после (пока эта колонка не первичный ключ, ограничение не создаётся). Всё это
+  разнесено на две фазы в `ChatMessagesSchemaRepoint`, а не в одну миграцию, потому что `php artisan migrate`
+  целиком проходит до `max:upgrade`.
 
 ### Соглашения
 
