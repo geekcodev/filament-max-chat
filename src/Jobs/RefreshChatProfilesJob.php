@@ -40,7 +40,7 @@ class RefreshChatProfilesJob implements ShouldQueue
         foreach ($this->users as $entry) {
             $chat = $this->resolveActiveChat((int) $entry['user_id']);
 
-            $user = $chat?->maxUser;
+            $user = $chat?->interlocutor();
 
             if ($user === null) {
                 continue;
@@ -65,9 +65,10 @@ class RefreshChatProfilesJob implements ShouldQueue
 
         /** @var MaxChat|null $chat */
         $chat = $model::query()
-            ->with('maxUser')
-            ->where('user_id', $userId)
-            ->whereNotNull('chat_id')
+            ->with('chatUsers.maxUser')
+            ->whereHas('chatUsers', static function ($query) use ($userId): void {
+                $query->where('user_id', $userId);
+            })
             ->where('status', MaxChatStatus::Active)
             ->orderByDesc('last_activity_at')
             ->first();

@@ -10,6 +10,7 @@ use GeekCo\FilamentMaxChat\Events\MaxMessageCreated;
 use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\LaravelMaxClient\Models\MaxChatUser;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\LaravelMaxClient\Support\Logger;
 use GeekCo\MaxPhpClient\Dto\Update;
@@ -46,6 +47,7 @@ class MaxMessageService
 
         return $this->createMessage(
             maxChat: $maxChat,
+            userId: $user->userId,
             direction: MaxMessageDirection::In,
             senderType: MaxMessageSender::User,
             text: $text,
@@ -85,6 +87,7 @@ class MaxMessageService
 
         return $this->createMessage(
             maxChat: $maxChat,
+            userId: $userId,
             direction: MaxMessageDirection::In,
             senderType: MaxMessageSender::User,
             text: $text,
@@ -108,6 +111,7 @@ class MaxMessageService
 
         return $this->createMessage(
             maxChat: $maxChat,
+            userId: $userId,
             direction: MaxMessageDirection::Out,
             senderType: $sender,
             text: $text,
@@ -130,7 +134,7 @@ class MaxMessageService
                         ->whereNull('read_at');
                 },
             ])
-            ->with(['lastMessage', 'maxUser'])
+            ->with(['lastMessage', 'chatUsers.maxUser'])
             ->orderByDesc('last_activity_at')
             ->get();
     }
@@ -154,12 +158,10 @@ class MaxMessageService
 
         $like = '%' . $escaped . '%';
 
-        /** @var class-string<MaxChat> $chatModelClass */
-        $chatModelClass = $this->chatModel();
-
         $chatIds = DB::table('max_chats')
-            ->join('max_users', 'max_users.user_id', '=', 'max_chats.user_id')
-            ->leftJoin('max_chat_messages', 'max_chat_messages.max_chat_id', '=', 'max_chats.id')
+            ->join('max_chat_users', 'max_chat_users.chat_id', '=', 'max_chats.chat_id')
+            ->join('max_users', 'max_users.user_id', '=', 'max_chat_users.user_id')
+            ->leftJoin('max_chat_messages', 'max_chat_messages.max_chat_id', '=', 'max_chats.chat_id')
             ->where('max_chats.status', MaxChatStatus::Active)
             ->where(function (\Illuminate\Database\Query\Builder $query) use ($like): void {
                 $query->whereRaw('max_users.first_name LIKE ? ESCAPE \'!\'', [$like])
@@ -167,14 +169,15 @@ class MaxMessageService
                     ->orWhereRaw('max_chat_messages.text LIKE ? ESCAPE \'!\'', [$like]);
             })
             ->orderByDesc('max_chats.last_activity_at')
-            ->pluck('max_chats.id');
+            ->distinct()
+            ->pluck('max_chats.chat_id');
 
         if ($chatIds->isEmpty()) {
             return new Collection();
         }
 
-        return $chatModelClass::query()
-            ->whereIn('id', $chatIds)
+        return $this->chatModel()::query()
+            ->whereIn('chat_id', $chatIds)
             ->where('status', MaxChatStatus::Active)
             ->withCount([
                 'messages as unread_count' => static function (Builder $query): void {
@@ -182,27 +185,32 @@ class MaxMessageService
                         ->whereNull('read_at');
                 },
             ])
-            ->with(['lastMessage', 'maxUser'])
+            ->with(['lastMessage', 'chatUsers.maxUser'])
             ->orderByDesc('last_activity_at')
             ->get();
     }
 
     /**
-     * По search-поиску `chat_id` (идентификатор чата в MAX) вернуть внутренний
-     * ID записи реестра max_chats. Позволяет открывать диалог по ссылке
-     * с внешних страниц: /chat?chat_id=<id в MAX>.
+     * Есть ли строка реестра max_chats для указанного идентификатора чата в MAX.
+     *
+     * С v1.2.0 адаптера первичный ключ max_chats — сам chat_id, поэтому проверка
+     * сводится к поиску по ключу. Нужна, чтобы открывать диалог по ссылке вида
+     * /chat?chat_id=<id в MAX> и не падать 404 на чужом или удалённом чате.
      */
-    public function resolveInternalIdFromMaxChatId(int $maxChatId): ?int
+    public function chatExists(int $chatId): bool
     {
         $model = $this->chatModel();
 
-        /** @var MaxChat|null $chat */
-        $chat = $model::query()
-            ->where('chat_id', $maxChatId)
-            ->orderByDesc('last_activity_at')
-            ->first();
+        return $model::query()->whereKey($chatId)->exists();
+    }
 
-        return $chat?->id;
+    /**
+     * @deprecated с v1.1.0: идентификатор записи реестра совпадает с chat_id,
+     *             используйте {@see self::chatExists()}
+     */
+    public function resolveInternalIdFromMaxChatId(int $maxChatId): ?int
+    {
+        return $this->chatExists($maxChatId) ? $maxChatId : null;
     }
 
     /**
@@ -214,7 +222,7 @@ class MaxMessageService
 
         return MaxMessage::query()
             ->where('max_chat_id', $maxChatId)
-            ->with('maxChat.maxUser')
+            ->with('maxChat.chatUsers.maxUser')
             ->latest()
             ->limit($limit)
             ->get()
@@ -232,7 +240,7 @@ class MaxMessageService
         return MaxMessage::query()
             ->where('max_chat_id', $maxChatId)
             ->where('id', '<', $beforeMessageId)
-            ->with('maxChat.maxUser')
+            ->with('maxChat.chatUsers.maxUser')
             ->latest()
             ->limit($limit)
             ->get()
@@ -334,6 +342,13 @@ class MaxMessageService
         return config()->string('filament-max-chat.chat_model', MaxChat::class);
     }
 
+    /** @return class-string<MaxChatUser> */
+    private function chatUserModel(): string
+    {
+        /** @var class-string<MaxChatUser> */
+        return config()->string('laravel-max-client.chats.chat_users_model', MaxChatUser::class);
+    }
+
     private function userFromRegistry(int $userId): ?User
     {
         $record = MaxUser::query()->find($userId);
@@ -369,15 +384,31 @@ class MaxMessageService
         $model = $this->chatModel();
 
         /** @var MaxChat */
-        return $model::query()->updateOrCreate(
-            [
-                'user_id' => $userId,
-                'chat_id' => $chatId,
-            ],
+        $chat = $model::query()->updateOrCreate(
+            ['chat_id' => $chatId],
             [
                 'status' => MaxChatStatus::Active,
                 'last_activity_at' => now(),
             ],
+        );
+
+        $this->upsertChatUser($chatId, $userId);
+
+        return $chat->refresh();
+    }
+
+    /**
+     * Завести связь «чат — пользователь» в реестре max_chat_users. Слушатель
+     * адаптера делает это же по апдейтам MAX, но сообщения оператора и
+     * storeIncomingForUser() приходят без апдейта, поэтому связь заводит и плагин.
+     */
+    private function upsertChatUser(int $chatId, int $userId): void
+    {
+        $model = $this->chatUserModel();
+
+        $model::query()->updateOrCreate(
+            ['chat_id' => $chatId, 'user_id' => $userId],
+            ['last_activity_at' => now()],
         );
     }
 
@@ -386,6 +417,7 @@ class MaxMessageService
      */
     private function createMessage(
         MaxChat $maxChat,
+        int $userId,
         MaxMessageDirection $direction,
         MaxMessageSender $senderType,
         ?string $text,
@@ -396,7 +428,7 @@ class MaxMessageService
         $maxChat->forceFill(['last_activity_at' => now()])->save();
 
         $message = $maxChat->messages()->create([
-            'user_id' => $maxChat->user_id,
+            'user_id' => $userId,
             'chat_id' => $maxChat->chat_id,
             'message_id' => $messageId,
             'direction' => $direction,

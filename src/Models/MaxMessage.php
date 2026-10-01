@@ -109,10 +109,19 @@ class MaxMessage extends Model
             : $label;
     }
 
-    /** @return BelongsTo<MaxChat, $this> */
+    /**
+     * С v1.2.0 адаптера первичный ключ max_chats — chat_id, поэтому owner key
+     * указывается явно: по умолчанию belongsTo ищет колонку `id`, которой в
+     * max_chats больше нет.
+     *
+     * @return BelongsTo<MaxChat, $this>
+     */
     public function maxChat(): BelongsTo
     {
-        return $this->belongsTo(MaxChat::class);
+        /** @var class-string<MaxChat> $chatModel */
+        $chatModel = config()->string('filament-max-chat.chat_model');
+
+        return $this->belongsTo($chatModel, 'max_chat_id', 'chat_id');
     }
 
     /** @return BelongsTo<Model, $this> */

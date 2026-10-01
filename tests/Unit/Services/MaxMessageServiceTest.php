@@ -12,6 +12,7 @@ use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Services\MaxMessageService;
 use GeekCo\FilamentMaxChat\Services\MaxChatSender;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
+use GeekCo\FilamentMaxChat\Tests\Support\MakesChats;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser as RegistryMaxUser;
@@ -30,6 +31,7 @@ use Illuminate\Support\Facades\Storage;
 
 class MaxMessageServiceTest extends TestCase
 {
+    use MakesChats;
     use RefreshDatabase;
 
     public function test_store_incoming_creates_message_and_chat(): void
@@ -54,19 +56,24 @@ class MaxMessageServiceTest extends TestCase
             'user_id' => 111,
             'first_name' => 'Иван',
         ]);
-        $this->assertSame($maxChat->id, $message->max_chat_id);
+        $this->assertSame($maxChat->chat_id, $message->max_chat_id);
+        $this->assertDatabaseHas('max_chat_users', ['chat_id' => 222, 'user_id' => 111]);
     }
 
-    public function test_resolve_internal_id_from_max_chat_id(): void
+    public function test_chat_exists_by_chat_id(): void
     {
         $service = app(MaxMessageService::class);
         $service->storeIncoming($this->incomingUpdate('Привет!'));
 
         $maxChat = MaxChat::query()->first();
         $this->assertNotNull($maxChat);
-        $this->assertNotNull($maxChat->chat_id);
 
-        $this->assertSame($maxChat->id, $service->resolveInternalIdFromMaxChatId($maxChat->chat_id));
+        $this->assertTrue($service->chatExists(222));
+        $this->assertFalse($service->chatExists(999999));
+
+        // Устаревший алиас остаётся рабочим: идентификатор записи реестра
+        // совпадает с chat_id.
+        $this->assertSame(222, $service->resolveInternalIdFromMaxChatId($maxChat->chat_id));
         $this->assertNull($service->resolveInternalIdFromMaxChatId(999999));
     }
 
@@ -79,7 +86,7 @@ class MaxMessageServiceTest extends TestCase
         $this->assertNotNull($maxChat);
         $this->assertSame(MaxChatStatus::Active, $maxChat->status);
 
-        $result = $service->removeChat($maxChat->id);
+        $result = $service->removeChat($maxChat->chat_id);
 
         $this->assertTrue($result);
         $this->assertSame(MaxChatStatus::Removed, $maxChat->fresh()?->status);
@@ -297,7 +304,7 @@ class MaxMessageServiceTest extends TestCase
         $this->assertSame('Ответ', $lastMessage->text);
         $this->assertSame($reply?->id, $lastMessage->id);
         $this->assertNotNull($conversation->last_activity_at);
-        $this->assertSame('Иван Петров', $conversation->conversationName());
+        $this->assertSame('Иван Петров', $conversation->displayName());
     }
 
     public function test_conversations_excludes_non_active_chats(): void
@@ -321,7 +328,7 @@ class MaxMessageServiceTest extends TestCase
 
         $chat = $found->first();
         $this->assertNotNull($chat);
-        $this->assertSame('Иван Петров', $chat->conversationName());
+        $this->assertSame('Иван Петров', $chat->displayName());
     }
 
     public function test_search_conversations_finds_by_message_text(): void
@@ -400,7 +407,7 @@ class MaxMessageServiceTest extends TestCase
 
         $maxChat = MaxChat::query()->firstOrFail();
 
-        $messages = $service->messagesFor($maxChat->id);
+        $messages = $service->messagesFor($maxChat->chat_id);
 
         $this->assertSame(['Первое', 'Ответ', 'Третье'], $messages->pluck('text')->all());
     }
@@ -412,7 +419,7 @@ class MaxMessageServiceTest extends TestCase
         $service->storeOutgoing(111, 222, 'Ответ', MaxMessageSender::Operator);
 
         $maxChat = MaxChat::query()->firstOrFail();
-        $service->markRead($maxChat->id);
+        $service->markRead($maxChat->chat_id);
 
         $this->assertSame(1, MaxMessage::query()->whereNull('read_at')->count());
         $incoming = MaxMessage::query()->where('direction', MaxMessageDirection::In)->firstOrFail();
