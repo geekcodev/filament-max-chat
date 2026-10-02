@@ -72,18 +72,13 @@ class OperatorChat extends Component
 
         $this->canAnswer = $user->can($this->answerPermission());
 
-        if ($chat_id !== null) {
-            $internalId = $this->service?->resolveInternalIdFromMaxChatId($chat_id);
+        // С v1.2.0 адаптера первичный ключ max_chats — сам chat_id, поэтому
+        // `chat` и `chat_id` значат одно и то же; различается только проверка
+        // наличия строки в реестре для значения из ссылки.
+        $requested = $chat_id ?? $chat;
 
-            if ($internalId !== null) {
-                $this->selectChat($internalId);
-
-                return;
-            }
-        }
-
-        if ($chat !== null) {
-            $this->selectChat($chat);
+        if ($requested !== null && $this->service?->chatExists($requested) === true) {
+            $this->selectChat($requested);
         }
     }
 
@@ -230,7 +225,7 @@ class OperatorChat extends Component
         $conversations = $this->service?->conversations() ?? new Collection();
 
         /** @var MaxChat|null $chat */
-        $chat = $conversations->firstWhere('id', $this->activeChatId);
+        $chat = $conversations->firstWhere('chat_id', $this->activeChatId);
 
         return $chat;
     }
@@ -274,11 +269,11 @@ class OperatorChat extends Component
         /** @var class-string<MaxChat> $chatModel */
         $chatModel = config()->string('filament-max-chat.chat_model');
 
-        $chat = $chatModel::query()->findOrFail($this->activeChatId);
+        $chat = $chatModel::query()->with('chatUsers.maxUser')->findOrFail($this->activeChatId);
 
         $caption = trim($this->reply) !== '' ? (string) $this->sanitizer?->sanitize($this->reply) : null;
         $maxCaption = $caption !== null ? (string) $this->sanitizer?->toMaxHtml($caption) : null;
-        $recipient = new Recipient(chatId: $chat->chat_id, userId: $chat->user_id);
+        $recipient = new Recipient(chatId: $chat->chat_id, userId: $chat->interlocutorId());
 
         try {
             $attachments = $this->attachments;
@@ -300,7 +295,7 @@ class OperatorChat extends Component
             }
         } catch (Throwable $exception) {
             Log::error('Operator chat: failed to send reply to MAX.', [
-                'max_chat_id' => $chat->id,
+                'chat_id' => $chat->chat_id,
                 'error' => $exception->getMessage(),
             ]);
             $this->addError('reply', __('filament-max-chat::chat.send_failed'));
@@ -318,15 +313,12 @@ class OperatorChat extends Component
 
         $operatorId = (int) $identifier;
 
-        $chatId = $chat->chat_id;
-
-        if ($chatId === null) {
-            return;
-        }
-
+        // Собеседника в реестре может не быть (канал, группа с несинхронизированным
+        // составом): отправка в MAX от этого не зависит, адресат — сам чат, и
+        // локальная история тоже должна знать про ответ.
         $this->service?->storeOutgoing(
-            userId: $chat->user_id,
-            chatId: $chatId,
+            userId: $chat->interlocutorId(),
+            chatId: $chat->chat_id,
             text: $maxCaption,
             sender: MaxMessageSender::Operator,
             operatorId: $operatorId,

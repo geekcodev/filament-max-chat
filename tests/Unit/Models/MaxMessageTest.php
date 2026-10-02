@@ -8,12 +8,13 @@ use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
 use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
 use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Models\MaxMessage;
+use GeekCo\FilamentMaxChat\Tests\Support\MakesChats;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
-use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class MaxMessageTest extends TestCase
 {
+    use MakesChats;
     use RefreshDatabase;
 
     public function test_preview_text_with_text_content(): void
@@ -93,15 +94,10 @@ class MaxMessageTest extends TestCase
 
     public function test_max_chat_relation(): void
     {
-        $chat = MaxChat::query()->create([
-            'user_id' => 111,
-            'chat_id' => 222,
-            'status' => MaxChatStatus::Active,
-            'last_activity_at' => now(),
-        ]);
+        $chat = $this->makeChatWithUser(222, 111);
 
         $message = MaxMessage::query()->create([
-            'max_chat_id' => $chat->id,
+            'max_chat_id' => $chat->chat_id,
             'user_id' => 111,
             'chat_id' => 222,
             'direction' => MaxMessageDirection::In,
@@ -110,7 +106,7 @@ class MaxMessageTest extends TestCase
         ]);
 
         $this->assertInstanceOf(MaxChat::class, $message->maxChat);
-        $this->assertSame($chat->id, $message->maxChat->id);
+        $this->assertSame($chat->chat_id, $message->maxChat->chat_id);
     }
 
     /**
@@ -118,15 +114,10 @@ class MaxMessageTest extends TestCase
      */
     private function createMessage(?string $text, ?array $attachment = null): MaxMessage
     {
-        $chat = MaxChat::query()->create([
-            'user_id' => 111,
-            'chat_id' => 222,
-            'status' => MaxChatStatus::Active,
-            'last_activity_at' => now(),
-        ]);
+        $chat = $this->makeChatWithUser(222, 111);
 
         return MaxMessage::query()->create([
-            'max_chat_id' => $chat->id,
+            'max_chat_id' => $chat->chat_id,
             'user_id' => 111,
             'chat_id' => 222,
             'direction' => MaxMessageDirection::In,

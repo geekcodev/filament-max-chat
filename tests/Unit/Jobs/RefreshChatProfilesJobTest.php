@@ -6,14 +6,15 @@ namespace GeekCo\FilamentMaxChat\Tests\Unit\Jobs;
 
 use GeekCo\FilamentMaxChat\Jobs\RefreshChatProfilesJob;
 use GeekCo\FilamentMaxChat\Models\MaxChat;
+use GeekCo\FilamentMaxChat\Tests\Support\MakesChats;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
-use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\LaravelMaxClient\Services\MaxUserProfileService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class RefreshChatProfilesJobTest extends TestCase
 {
+    use MakesChats;
     use RefreshDatabase;
 
     public function test_resolve_active_chat_returns_the_active_chat(): void
@@ -25,7 +26,7 @@ class RefreshChatProfilesJobTest extends TestCase
 
         $this->assertNotNull($chat);
         $this->assertSame(222, $chat->chat_id);
-        $this->assertNotNull($chat->maxUser);
+        $this->assertNotNull($chat->interlocutor());
     }
 
     public function test_resolve_active_chat_skips_stopped_chat(): void
@@ -47,15 +48,12 @@ class RefreshChatProfilesJobTest extends TestCase
 
     public function test_handle_calls_profile_service_for_found_chats(): void
     {
-        MaxUser::query()->updateOrCreate(
-            ['user_id' => 111],
-            [
-                'first_name' => 'Иван',
-                'avatar_url' => 'https://example/avatar.jpg',
-                'full_avatar_url' => 'https://example/full.jpg',
-                'profile_checked_at' => now(),
-            ],
-        );
+        $this->makeRegistryUser(111, [
+            'first_name' => 'Иван',
+            'avatar_url' => 'https://example/avatar.jpg',
+            'full_avatar_url' => 'https://example/full.jpg',
+            'profile_checked_at' => now(),
+        ]);
 
         $this->createChat(userId: 111, chatId: 222);
 
@@ -66,14 +64,9 @@ class RefreshChatProfilesJobTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function test_handle_skips_entries_without_max_user(): void
+    public function test_handle_skips_entries_without_interlocutor(): void
     {
-        MaxChat::query()->create([
-            'user_id' => 444,
-            'chat_id' => 555,
-            'status' => MaxChatStatus::Active,
-            'last_activity_at' => now(),
-        ]);
+        $this->makeChat(555);
 
         $job = new RefreshChatProfilesJob([['user_id' => 444, 'chat_id' => 555]]);
 
@@ -96,16 +89,12 @@ class RefreshChatProfilesJobTest extends TestCase
         int $chatId,
         MaxChatStatus $status = MaxChatStatus::Active,
     ): MaxChat {
-        MaxUser::query()->updateOrCreate(
-            ['user_id' => $userId],
-            ['first_name' => 'Иван'],
-        );
+        $this->makeRegistryUser($userId, ['first_name' => 'Иван']);
 
-        return MaxChat::query()->create([
-            'user_id' => $userId,
-            'chat_id' => $chatId,
-            'status' => $status,
-            'last_activity_at' => now(),
-        ]);
+        $chat = $this->makeChat($chatId, ['status' => $status]);
+
+        $this->linkChatUser($chatId, $userId);
+
+        return $chat;
     }
 }

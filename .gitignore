@@ -1,5 +1,6 @@
 .idea/
 .phpunit.cache/
+.phpstan-cache/
 build/
 vendor/
 coverage/

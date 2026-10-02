@@ -16,6 +16,9 @@ return [
         'user' => 'User',
         'operator' => 'Operator',
         'bot' => 'Bot',
+        'channel' => 'Channel',
+        'group' => 'Group',
+        'unknown' => 'No sender',
     ],
 
     'preview' => [

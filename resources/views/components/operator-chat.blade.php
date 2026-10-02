@@ -19,22 +19,23 @@
             >
         </div>
         @forelse ($this->conversations as $chat)
+            @php($listUser = $chat->interlocutor())
             <button
                 type="button"
-                wire:key="chat-{{ $chat->id }}"
-                wire:click="selectChat({{ $chat->id }})"
-                class="flex w-full items-start gap-3 border-b border-gray-100 px-4 py-3 text-left hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5 {{ $activeChatId === $chat->id ? 'bg-primary-50 dark:bg-primary-500/10' : '' }}"
+                wire:key="chat-{{ $chat->chat_id }}"
+                wire:click="selectChat({{ $chat->chat_id }})"
+                class="flex w-full items-start gap-3 border-b border-gray-100 px-4 py-3 text-left hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5 {{ $activeChatId === $chat->chat_id ? 'bg-primary-50 dark:bg-primary-500/10' : '' }}"
             >
-                @if ($chat->maxUser?->avatar_url)
-                    <img src="{{ $chat->maxUser->avatar_url }}" alt="" class="h-10 w-10 shrink-0 rounded-full object-cover">
+                @if ($listUser?->avatar_url)
+                    <img src="{{ $listUser->avatar_url }}" alt="" class="h-10 w-10 shrink-0 rounded-full object-cover">
                 @else
                     <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
-                        <span class="text-sm font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chat->maxUser?->first_name ?? $chat->conversationName(), 0, 1) . mb_substr($chat->maxUser?->last_name ?? '', 0, 1)) }}</span>
+                        <span class="text-sm font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($listUser?->first_name ?? $chat->displayName(), 0, 1) . mb_substr($listUser?->last_name ?? '', 0, 1)) }}</span>
                     </div>
                 @endif
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-2">
-                        <span class="truncate text-sm font-medium text-gray-950 dark:text-white">{!! $this->markHighlighted($chat->conversationName()) !!}</span>
+                        <span class="truncate text-sm font-medium text-gray-950 dark:text-white">{!! $this->markHighlighted($chat->displayName()) !!}</span>
                         @if ($chat->lastMessage?->created_at)
                             <span class="shrink-0 text-xs text-gray-400">{{ $chat->lastMessage->created_at->diffForHumans() }}</span>
                         @endif
@@ -65,7 +66,7 @@
             </div>
         @else
             @php($activeChat = $this->activeConversation)
-            @php($chatUser = $activeChat?->maxUser)
+            @php($chatUser = $activeChat?->interlocutor())
             <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-white/5">
                 <div class="flex min-w-0 items-center gap-2" x-data="{ showUserInfo: false }">
                     @if ($chatUser?->avatar_url)
@@ -75,9 +76,15 @@
                             <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
                         </div>
                     @endif
-                    <button type="button" @click="showUserInfo = true" class="min-w-0 truncate text-sm font-medium text-gray-950 hover:underline dark:text-white">
-                        {{ $activeChat?->conversationName() }}
-                    </button>
+                    @if ($chatUser)
+                        <button type="button" @click="showUserInfo = true" class="min-w-0 truncate text-sm font-medium text-gray-950 hover:underline dark:text-white">
+                            {{ $activeChat?->displayName() }}
+                        </button>
+                    @else
+                        <span class="min-w-0 truncate text-sm font-medium text-gray-950 dark:text-white">
+                            {{ $activeChat?->displayName() }}
+                        </span>
+                    @endif
 
                     <div
                         x-show="showUserInfo"
@@ -164,12 +171,14 @@
                 @forelse ($this->messages as $message)
                     <div wire:key="message-{{ $message->id }}" class="group relative flex {{ $message->direction === MaxMessageDirection::Out ? 'justify-end' : 'justify-start' }}">
                         @if ($message->direction === MaxMessageDirection::In)
-                            @php($userAvatar = $message->maxChat?->maxUser?->avatar_url)
+                            @php($senderUser = $message->maxChat?->interlocutor())
+                            @php($userAvatar = $senderUser?->avatar_url)
+                            @php($senderLabel = $senderUser !== null ? trim(($senderUser->first_name ?? '') . ' ' . ($senderUser->last_name ?? '')) : $message->maxChat?->senderFallbackName())
                             @if ($userAvatar)
                                 <img src="{{ $userAvatar }}" alt="" class="mr-2 mt-1 h-8 w-8 shrink-0 rounded-full object-cover">
                             @else
-                                <div class="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
-                                    <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($message->maxChat?->maxUser?->first_name ?? '?', 0, 1) . mb_substr($message->maxChat?->maxUser?->last_name ?? '', 0, 1)) }}</span>
+                                <div class="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10" title="{{ $senderLabel }}">
+                                    <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($senderLabel ?? '?', 0, 1) . mb_substr($senderUser?->last_name ?? '', 0, 1)) }}</span>
                                 </div>
                             @endif
                         @endif

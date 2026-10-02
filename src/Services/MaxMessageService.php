@@ -10,6 +10,7 @@ use GeekCo\FilamentMaxChat\Events\MaxMessageCreated;
 use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\LaravelMaxClient\Models\MaxChatUser;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\LaravelMaxClient\Support\Logger;
 use GeekCo\MaxPhpClient\Dto\Update;
@@ -31,27 +32,81 @@ class MaxMessageService
         $user = $update->user ?? $update->message?->sender;
         $chatId = $update->chatId ?? $update->message?->recipient->chatId;
 
-        if ($user === null || $chatId === null) {
-            $this->logger->log('warning', 'Incoming MAX message without user or chat skipped.', [
+        if ($chatId === null) {
+            $this->logger->log('warning', 'Incoming MAX message without chat skipped.', [
                 'update_type' => $update->updateType->value,
             ]);
 
             return null;
         }
 
-        $maxChat = $this->upsertChat($user->userId, $chatId, $user);
+        if ($user === null) {
+            $this->logger->log('info', 'Incoming MAX message without sender stored without user.', [
+                'chat_id' => $chatId,
+                'update_type' => $update->updateType->value,
+            ]);
+        }
+
+        $maxChat = $this->upsertChat($user?->userId, $chatId, $user);
 
         $text = $update->message?->body?->text;
         $text ??= $update->message?->body?->caption;
 
         return $this->createMessage(
             maxChat: $maxChat,
+            userId: $user?->userId,
             direction: MaxMessageDirection::In,
             senderType: MaxMessageSender::User,
             text: $text,
             messageId: $update->messageId ?? $update->message?->body?->mid,
             attachments: $this->attachments->storeFromIncoming($update->message?->body?->attachments),
         );
+    }
+
+    /**
+     * Правка сообщения в MAX (`message_edited`): переписывает текст уже
+     * сохранённого сообщения по `message_id`. Неизвестное сообщение не создаётся
+     * — апдейт без тела (нет нового текста) тоже ничего не трогает, чтобы пустой
+     * `message_edited` не вытер переписку. Обновление видно в ленте при
+     * следующем `wire:poll`, отдельного broadcast-события на правку нет.
+     */
+    public function applyIncomingEdit(Update $update): ?MaxMessage
+    {
+        $message = $this->findByMaxMessageId($update);
+
+        if ($message === null) {
+            return null;
+        }
+
+        $text = $update->message?->body?->text;
+        $text ??= $update->message?->body?->caption;
+
+        if ($text === null) {
+            return null;
+        }
+
+        $message->forceFill(['text' => $text])->save();
+
+        return $message->refresh();
+    }
+
+    /**
+     * Удаление сообщения в MAX (`message_removed`): строка истории удаляется
+     * вместе с файлом вложения на приватном диске — иначе файл остался бы
+     * сиротой, а удалить его уже никто не сможет. Отправку в MAX не трогаем:
+     * сообщение удалено там, локальная история просто приводится в соответствие.
+     */
+    public function applyIncomingRemoval(Update $update): bool
+    {
+        $message = $this->findByMaxMessageId($update);
+
+        if ($message === null) {
+            return false;
+        }
+
+        $this->attachments->deleteStored($message->attachment);
+
+        return (bool) $message->delete();
     }
 
     /**
@@ -85,6 +140,7 @@ class MaxMessageService
 
         return $this->createMessage(
             maxChat: $maxChat,
+            userId: $userId,
             direction: MaxMessageDirection::In,
             senderType: MaxMessageSender::User,
             text: $text,
@@ -93,10 +149,12 @@ class MaxMessageService
     }
 
     /**
+     * @param int|null $userId Собеседник; null для чата без собеседника в реестре
+     *                         (канал или группа, чей состав ещё не синхронизирован)
      * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
      */
     public function storeOutgoing(
-        int $userId,
+        ?int $userId,
         int $chatId,
         ?string $text,
         MaxMessageSender $sender,
@@ -108,6 +166,7 @@ class MaxMessageService
 
         return $this->createMessage(
             maxChat: $maxChat,
+            userId: $userId,
             direction: MaxMessageDirection::Out,
             senderType: $sender,
             text: $text,
@@ -130,7 +189,7 @@ class MaxMessageService
                         ->whereNull('read_at');
                 },
             ])
-            ->with(['lastMessage', 'maxUser'])
+            ->with(['lastMessage', 'chatUsers.maxUser'])
             ->orderByDesc('last_activity_at')
             ->get();
     }
@@ -154,12 +213,13 @@ class MaxMessageService
 
         $like = '%' . $escaped . '%';
 
-        /** @var class-string<MaxChat> $chatModelClass */
-        $chatModelClass = $this->chatModel();
-
+        // Связи с пользователями ищем LEFT JOIN, а не JOIN: у канала и группы
+        // состав может быть ещё не синхронизирован, и такой чат обязан находиться
+        // по тексту сообщений, а не выпадать из выдачи.
         $chatIds = DB::table('max_chats')
-            ->join('max_users', 'max_users.user_id', '=', 'max_chats.user_id')
-            ->leftJoin('max_chat_messages', 'max_chat_messages.max_chat_id', '=', 'max_chats.id')
+            ->leftJoin('max_chat_users', 'max_chat_users.chat_id', '=', 'max_chats.chat_id')
+            ->leftJoin('max_users', 'max_users.user_id', '=', 'max_chat_users.user_id')
+            ->leftJoin('max_chat_messages', 'max_chat_messages.max_chat_id', '=', 'max_chats.chat_id')
             ->where('max_chats.status', MaxChatStatus::Active)
             ->where(function (\Illuminate\Database\Query\Builder $query) use ($like): void {
                 $query->whereRaw('max_users.first_name LIKE ? ESCAPE \'!\'', [$like])
@@ -167,14 +227,15 @@ class MaxMessageService
                     ->orWhereRaw('max_chat_messages.text LIKE ? ESCAPE \'!\'', [$like]);
             })
             ->orderByDesc('max_chats.last_activity_at')
-            ->pluck('max_chats.id');
+            ->distinct()
+            ->pluck('max_chats.chat_id');
 
         if ($chatIds->isEmpty()) {
             return new Collection();
         }
 
-        return $chatModelClass::query()
-            ->whereIn('id', $chatIds)
+        return $this->chatModel()::query()
+            ->whereIn('chat_id', $chatIds)
             ->where('status', MaxChatStatus::Active)
             ->withCount([
                 'messages as unread_count' => static function (Builder $query): void {
@@ -182,27 +243,32 @@ class MaxMessageService
                         ->whereNull('read_at');
                 },
             ])
-            ->with(['lastMessage', 'maxUser'])
+            ->with(['lastMessage', 'chatUsers.maxUser'])
             ->orderByDesc('last_activity_at')
             ->get();
     }
 
     /**
-     * По search-поиску `chat_id` (идентификатор чата в MAX) вернуть внутренний
-     * ID записи реестра max_chats. Позволяет открывать диалог по ссылке
-     * с внешних страниц: /chat?chat_id=<id в MAX>.
+     * Есть ли строка реестра max_chats для указанного идентификатора чата в MAX.
+     *
+     * С v1.2.0 адаптера первичный ключ max_chats — сам chat_id, поэтому проверка
+     * сводится к поиску по ключу. Нужна, чтобы открывать диалог по ссылке вида
+     * /chat?chat_id=<id в MAX> и не падать 404 на чужом или удалённом чате.
      */
-    public function resolveInternalIdFromMaxChatId(int $maxChatId): ?int
+    public function chatExists(int $chatId): bool
     {
         $model = $this->chatModel();
 
-        /** @var MaxChat|null $chat */
-        $chat = $model::query()
-            ->where('chat_id', $maxChatId)
-            ->orderByDesc('last_activity_at')
-            ->first();
+        return $model::query()->whereKey($chatId)->exists();
+    }
 
-        return $chat?->id;
+    /**
+     * @deprecated с v1.1.0: идентификатор записи реестра совпадает с chat_id,
+     *             используйте {@see self::chatExists()}
+     */
+    public function resolveInternalIdFromMaxChatId(int $maxChatId): ?int
+    {
+        return $this->chatExists($maxChatId) ? $maxChatId : null;
     }
 
     /**
@@ -214,7 +280,7 @@ class MaxMessageService
 
         return MaxMessage::query()
             ->where('max_chat_id', $maxChatId)
-            ->with('maxChat.maxUser')
+            ->with('maxChat.chatUsers.maxUser')
             ->latest()
             ->limit($limit)
             ->get()
@@ -232,7 +298,7 @@ class MaxMessageService
         return MaxMessage::query()
             ->where('max_chat_id', $maxChatId)
             ->where('id', '<', $beforeMessageId)
-            ->with('maxChat.maxUser')
+            ->with('maxChat.chatUsers.maxUser')
             ->latest()
             ->limit($limit)
             ->get()
@@ -327,11 +393,42 @@ class MaxMessageService
         return (bool) $message->delete();
     }
 
+    /**
+     * Локальное сообщение по идентификатору MAX в рамках чата. Идентификаторы
+     * сообщений уникальны внутри чата, поэтому ищем по паре «чат + message_id»:
+     * один message_id из другого чата не должен править или удалять эту историю.
+     */
+    private function findByMaxMessageId(Update $update): ?MaxMessage
+    {
+        $messageId = $update->messageId;
+        $chatId = $update->chatId ?? $update->message?->recipient->chatId;
+
+        if ($messageId === null || $messageId === '' || $chatId === null) {
+            $this->logger->log('warning', 'Incoming MAX message change without chat or message id skipped.', [
+                'update_type' => $update->updateType->value,
+            ]);
+
+            return null;
+        }
+
+        return MaxMessage::query()
+            ->where('max_chat_id', $chatId)
+            ->where('message_id', $messageId)
+            ->first();
+    }
+
     /** @return class-string<MaxChat> */
     private function chatModel(): string
     {
         /** @var class-string<MaxChat> */
         return config()->string('filament-max-chat.chat_model', MaxChat::class);
+    }
+
+    /** @return class-string<MaxChatUser> */
+    private function chatUserModel(): string
+    {
+        /** @var class-string<MaxChatUser> */
+        return config()->string('laravel-max-client.chats.chat_users_model', MaxChatUser::class);
     }
 
     private function userFromRegistry(int $userId): ?User
@@ -353,9 +450,9 @@ class MaxMessageService
         );
     }
 
-    private function upsertChat(int $userId, int $chatId, ?User $user = null): MaxChat
+    private function upsertChat(?int $userId, int $chatId, ?User $user = null): MaxChat
     {
-        if ($user !== null) {
+        if ($userId !== null && $user !== null) {
             MaxUser::query()->updateOrCreate(
                 ['user_id' => $userId],
                 array_filter([
@@ -369,15 +466,33 @@ class MaxMessageService
         $model = $this->chatModel();
 
         /** @var MaxChat */
-        return $model::query()->updateOrCreate(
-            [
-                'user_id' => $userId,
-                'chat_id' => $chatId,
-            ],
+        $chat = $model::query()->updateOrCreate(
+            ['chat_id' => $chatId],
             [
                 'status' => MaxChatStatus::Active,
                 'last_activity_at' => now(),
             ],
+        );
+
+        if ($userId !== null) {
+            $this->upsertChatUser($chatId, $userId);
+        }
+
+        return $chat->refresh();
+    }
+
+    /**
+     * Завести связь «чат — пользователь» в реестре max_chat_users. Слушатель
+     * адаптера делает это же по апдейтам MAX, но сообщения оператора и
+     * storeIncomingForUser() приходят без апдейта, поэтому связь заводит и плагин.
+     */
+    private function upsertChatUser(int $chatId, int $userId): void
+    {
+        $model = $this->chatUserModel();
+
+        $model::query()->updateOrCreate(
+            ['chat_id' => $chatId, 'user_id' => $userId],
+            ['last_activity_at' => now()],
         );
     }
 
@@ -386,6 +501,7 @@ class MaxMessageService
      */
     private function createMessage(
         MaxChat $maxChat,
+        ?int $userId,
         MaxMessageDirection $direction,
         MaxMessageSender $senderType,
         ?string $text,
@@ -396,7 +512,7 @@ class MaxMessageService
         $maxChat->forceFill(['last_activity_at' => now()])->save();
 
         $message = $maxChat->messages()->create([
-            'user_id' => $maxChat->user_id,
+            'user_id' => $userId,
             'chat_id' => $maxChat->chat_id,
             'message_id' => $messageId,
             'direction' => $direction,
