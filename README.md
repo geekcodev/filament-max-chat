@@ -21,7 +21,10 @@ Filament-плагин: **чат оператора** с пользователя
 
 - PHP ^8.4, Laravel ^13.0
 - Filament ^5.0 (панель v5), Livewire ^4.1
-- `geekcodev/laravel-max-client` ^1.1.0 + `geekcodev/max-php-client` ^1.0.9
+- `geekcodev/laravel-max-client` ^1.2.0 + `geekcodev/max-php-client` ^1.1.8. Constraint в `composer.json` пока `^1.1.0`:
+  версия `1.2.0` обязательна не по привычке — на ней реестр перешёл на новую форму (одна строка на чат, PK `chat_id`,
+  связи в `max_chat_users`), и на `1.1.x` часть кода плагина рассыпается (см. `.agents/plans/PLAN-filament-max-chat.md`,
+  gotcha 1 в `AGENTS.md`). Фактически установленную версию всегда сверяй `composer show geekcodev/laravel-max-client`.
 - Опубликованные миграции laravel-max-client (`max_users`, `max_chats`)
 - Для real-time: совместимый broadcaster (например, Laravel Reverb) и `window.Echo` в панели
 
@@ -168,12 +171,30 @@ PHP/Composer на хосте не требуются — всё через Docke
 ```bash
 docker compose up -d --build   # контейнер app (PHP 8.4)
 docker compose run --rm app composer install
-docker compose exec app composer test       # PHPUnit (SQLite in-memory)
-docker compose exec app composer analyse    # PHPStan level max (Larastan)
-docker compose exec app composer lint       # PHP-CS-Fixer (--dry-run)
-docker compose exec app composer format     # PHP-CS-Fixer (исправить)
-docker compose exec app composer audit      # composer audit
+docker compose exec -T app composer test           # PHPUnit (SQLite in-memory)
+docker compose exec -T app composer analyse        # PHPStan level max (Larastan)
+docker compose exec -T app composer lint           # PHP-CS-Fixer (--dry-run)
+docker compose exec -T app composer format         # PHP-CS-Fixer (исправить)
+docker compose exec -T app composer coverage        # PHPUnit + гейт покрытия ≥95% строк
+docker compose exec -T app composer security-audit # composer audit
 ```
 
-Xdebug включён по умолчанию (`XDEBUG_MODE=coverage`); для профилирования/отладки подключайтесь к
-`host.docker.internal:9003`.
+Флаг `-T` у `docker compose exec` обязателен для неинтерактивных запусков: без него вывод PHPUnit/PHPStan ломается при
+перенаправлении. Xdebug в контейнере включён, для покрытия режим задаётся явно:
+
+```bash
+XDEBUG_MODE=coverage docker compose run --rm -e XDEBUG_MODE=coverage app composer coverage
+```
+
+Для профилирования/отладки подключайтесь к `host.docker.internal:9003`.
+
+## История изменений
+
+Значимые пункты дублируются здесь из `.agents/release/RELEASE_NOTES_vX.Y.Z.md`; полные release notes лежат в
+`.agents/release/`.
+
+| Версия        | Дата                  | Итог                                                                                                                                                                                                      |
+|---------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| v1.1.0        | 2026-09-04            | Совместимость с `laravel-max-client` 1.2: адресация истории по `chat_id`, `MaxChat::interlocutor()`/`displayName()`, поиск по всем пользователям чата. Ломающий переход (нужен `php artisan max:upgrade`) |
+| v1.0.9        | 2026-09-03            | Несколько вложений с предпросмотром и вставкой ссылки, `storeIncomingForUser` для действий пользователя без апдейта MAX                                                                                   |
+| v1.0.0–v1.0.8 | 2026-08-25…2026-09-01 | Первая реализация плагина: страница чата, лента, ответы и вложения, real-time доставка и глобальный счётчик непрочитанного, аватары и карточка чата                                                       |

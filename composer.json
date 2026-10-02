@@ -60,6 +60,7 @@
     "analyse": "phpstan analyse --memory-limit=-1",
     "lint": "php-cs-fixer fix --dry-run --diff",
     "format": "php-cs-fixer fix",
+    "coverage": "phpunit --coverage-clover build/coverage.xml && php scripts/check-coverage.php",
     "security-audit": "composer audit"
   },
   "config": {

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
     branches: [main]
 
@@ -10,75 +10,46 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint (php-cs-fixer)
+  quality:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.4'
-          tools: composer:v2
-          coverage: none
-      - uses: actions/cache@v4
-        with:
-          path: vendor
-          key: composer-${{ hashFiles('composer.lock') }}
-          restore-keys: composer-
-      - run: composer install --no-interaction --no-progress --prefer-dist
-      - run: composer lint
 
-  analyse:
-    name: PHPStan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.4'
-          tools: composer:v2
-          coverage: none
-      - uses: actions/cache@v4
-        with:
-          path: vendor
-          key: composer-${{ hashFiles('composer.lock') }}
-          restore-keys: composer-
-      - run: composer install --no-interaction --no-progress --prefer-dist
-      - run: composer analyse
+    strategy:
+      matrix:
+        php: ['8.4']
 
-  test:
-    name: PHPUnit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.4'
-          tools: composer:v2
-          coverage: none
-          extensions: dom, fileinfo
-      - uses: actions/cache@v4
-        with:
-          path: vendor
-          key: composer-${{ hashFiles('composer.lock') }}
-          restore-keys: composer-
-      - run: composer install --no-interaction --no-progress --prefer-dist
-      - run: composer test
+    name: PHP ${{ matrix.php }}
 
-  audit:
-    name: Composer Audit
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: ${{ matrix.php }}
           tools: composer:v2
-          coverage: none
-      - uses: actions/cache@v4
+          extensions: dom, libxml, fileinfo
+          coverage: xdebug
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
         with:
           path: vendor
-          key: composer-${{ hashFiles('composer.lock') }}
-          restore-keys: composer-
-      - run: composer install --no-interaction --no-progress --prefer-dist
-      - run: composer audit
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.json') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Lint
+        run: composer lint
+
+      - name: PHPStan
+        run: composer analyse
+
+      - name: Tests and coverage
+        run: composer coverage
+        env:
+          XDEBUG_MODE: coverage
+
+      - name: Security audit
+        run: composer security-audit

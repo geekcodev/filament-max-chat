@@ -13,8 +13,18 @@ parameters:
 
     parseModelCastsMethod: true
 
+    # composer.lock у пакета не коммитится, поэтому набор версий Filament/Livewire/Larastan
+    # в CI и локально расходится: ошибки тестовых хелперов то появляются, то исчезают, и
+    # запись ignoreErrors закономерно оказывается незакрытой. Незакрытые записи ошибкой не
+    # считаем. Из ignoreErrors: запись про хелперы из tests/ (gotcha 15) и пока не устранённая
+    # запись про view() в src/Livewire/OperatorChat.php — последняя технический долг, её надо
+    # закрыть типизацией view(), а не оставлять в ignore навсегда.
+    reportUnmatchedIgnoredErrors: false
+
     configDirectories:
         - %currentWorkingDirectory%/config
+
+    tmpDir: %currentWorkingDirectory%/.phpstan-cache
 
     ignoreErrors:
         -
