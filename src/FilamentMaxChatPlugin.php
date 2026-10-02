@@ -9,6 +9,7 @@ use Filament\Panel;
 use Filament\View\PanelsRenderHook;
 use GeekCo\FilamentMaxChat\Pages\OperatorChat;
 use Illuminate\Contracts\View\View as ViewContract;
+use Illuminate\Support\Facades\View;
 
 class FilamentMaxChatPlugin implements Plugin
 {
@@ -30,10 +31,13 @@ class FilamentMaxChatPlugin implements Plugin
 
     public function boot(Panel $panel): void
     {
+        /** @var view-string $notificationScript */
+        $notificationScript = 'filament-max-chat::components.notification-script';
+
         $panel->renderHook(
             PanelsRenderHook::SCRIPTS_AFTER,
-            static fn (): ViewContract => \Illuminate\Support\Facades\View::make(
-                'filament-max-chat::components.notification-script',
+            static fn (): ViewContract => View::make(
+                $notificationScript,
                 ['slug' => config('filament-max-chat.ui.slug', 'chat')],
             ),
         );
