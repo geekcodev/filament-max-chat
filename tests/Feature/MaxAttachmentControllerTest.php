@@ -6,17 +6,16 @@ namespace GeekCo\FilamentMaxChat\Tests\Feature;
 
 use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
 use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
-use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
+use GeekCo\FilamentMaxChat\Tests\Support\MakesChats;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
-use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
-use GeekCo\LaravelMaxClient\Models\MaxUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 
 class MaxAttachmentControllerTest extends TestCase
 {
+    use MakesChats;
     use RefreshDatabase;
 
     public function test_staff_with_view_permission_can_download_attachment(): void
@@ -124,18 +123,11 @@ class MaxAttachmentControllerTest extends TestCase
      */
     private function createMessage(?array $attachment = null): MaxMessage
     {
-        MaxUser::query()->updateOrCreate(['user_id' => 111], ['first_name' => 'Иван']);
-
-        $chat = MaxChat::query()->create([
-            'user_id' => 111,
-            'chat_id' => 222,
-            'status' => MaxChatStatus::Active,
-            'last_activity_at' => now(),
-        ]);
+        $chat = $this->makeChatWithUser(222, 111);
 
         return MaxMessage::query()->create([
-            'max_chat_id' => $chat->id,
-            'user_id' => $chat->user_id,
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => 111,
             'chat_id' => $chat->chat_id,
             'direction' => MaxMessageDirection::In,
             'sender_type' => MaxMessageSender::User,

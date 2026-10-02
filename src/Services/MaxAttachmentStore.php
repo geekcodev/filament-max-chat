@@ -86,6 +86,32 @@ class MaxAttachmentStore
         ];
     }
 
+    /**
+     * Deletes files of a message that no longer exists in MAX, so a private disk
+     * keeps no orphaned attachments. Paths outside the configured directory are
+     * ignored: the attachment column is data, not a trusted instruction.
+     *
+     * @param list<mixed>|null $attachment
+     */
+    public function deleteStored(?array $attachment): void
+    {
+        $directory = $this->directory();
+
+        foreach ($attachment ?? [] as $meta) {
+            if (! is_array($meta)) {
+                continue;
+            }
+
+            $path = $meta['path'] ?? null;
+
+            if (! is_string($path) || ! str_starts_with($path, $directory.'/')) {
+                continue;
+            }
+
+            $this->disk()->delete($path);
+        }
+    }
+
     private function maxBytes(): int
     {
         return config()->integer('filament-max-chat.attachments.max_bytes', self::DEFAULT_MAX_BYTES);

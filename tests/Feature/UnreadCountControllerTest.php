@@ -10,13 +10,13 @@ use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Services\MaxMessageService;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
+use GeekCo\FilamentMaxChat\Tests\Support\MakesChats;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
-use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
-use GeekCo\LaravelMaxClient\Models\MaxUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class UnreadCountControllerTest extends TestCase
 {
+    use MakesChats;
     use RefreshDatabase;
 
     public function test_guest_gets_unauthorized_json(): void
@@ -48,7 +48,7 @@ class UnreadCountControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonPath('unread_count', 2);
-        $response->assertJsonPath('latest_max_chat_id', $chatB->id);
+        $response->assertJsonPath('latest_max_chat_id', $chatB->chat_id);
     }
 
     public function test_staff_gets_zero_when_no_unread(): void
@@ -72,7 +72,7 @@ class UnreadCountControllerTest extends TestCase
         $staff = $this->createUser(canView: true);
         $this->actingAs($staff)->get('/admin/chat/unread-count');
 
-        app(MaxMessageService::class)->markRead($chat->id);
+        app(MaxMessageService::class)->markRead($chat->chat_id);
 
         $this->actingAs($staff)
             ->get('/admin/chat/unread-count')
@@ -94,21 +94,14 @@ class UnreadCountControllerTest extends TestCase
 
     private function createChat(int $userId, int $chatId): MaxChat
     {
-        MaxUser::query()->updateOrCreate(['user_id' => $userId], ['first_name' => 'Пользователь']);
-
-        return MaxChat::query()->create([
-            'user_id' => $userId,
-            'chat_id' => $chatId,
-            'status' => MaxChatStatus::Active,
-            'last_activity_at' => now(),
-        ]);
+        return $this->makeChatWithUser($chatId, $userId, ['first_name' => 'Пользователь']);
     }
 
     private function createMessage(MaxChat $chat, MaxMessageDirection $direction, ?string $text): MaxMessage
     {
         return MaxMessage::query()->create([
-            'max_chat_id' => $chat->id,
-            'user_id' => $chat->user_id,
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => $chat->interlocutorId(),
             'chat_id' => $chat->chat_id,
             'direction' => $direction,
             'sender_type' => $direction === MaxMessageDirection::In ? MaxMessageSender::User : MaxMessageSender::Operator,

@@ -12,14 +12,9 @@ return new class () extends Migration {
         Schema::create('max_chat_messages', function (Blueprint $table): void {
             $table->id();
 
-            // Локальный FK на реестр чатов (max_chats.id). Не путать с системными
-            // user_id/chat_id ниже: max_chat_id — это запись локального реестра диалогов
-            // (включая оператора-бота), а user_id и chat_id — идентификаторы пользователя
-            // и чата внутри экосистемы MAX.
-            $table->foreignId('max_chat_id')->constrained('max_chats')->cascadeOnDelete();
-
-            $table->unsignedBigInteger('user_id')->comment('Идентификатор пользователя MAX');
-            $table->unsignedBigInteger('chat_id')->comment('Идентификатор чата в MAX');
+            $table->bigInteger('max_chat_id');
+            $table->bigInteger('user_id')->comment('Идентификатор пользователя MAX');
+            $table->bigInteger('chat_id')->comment('Идентификатор чата в MAX');
             $table->string('message_id')->nullable()->comment('Идентификатор сообщения в MAX');
             $table->string('direction', 8)->comment('Направление: in/out');
             $table->string('sender_type', 16)->comment('Отправитель: operator/user');
@@ -29,6 +24,7 @@ return new class () extends Migration {
             $table->timestamp('read_at')->nullable()->comment('Время прочтения оператором');
             $table->timestamps();
 
+            $table->foreign('max_chat_id')->references('chat_id')->on('max_chats')->cascadeOnDelete();
             $table->index(['max_chat_id', 'created_at']);
             $table->index(['user_id', 'chat_id', 'created_at']);
             $table->index('created_at');

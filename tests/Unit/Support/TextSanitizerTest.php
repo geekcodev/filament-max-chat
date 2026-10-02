@@ -68,12 +68,12 @@ class TextSanitizerTest extends TestCase
     public function test_keeps_safe_links_and_drops_dangerous_schemes(): void
     {
         $result = $this->sanitizer->sanitize(
-            '<a href="https://chisto-service.ru">Сайт</a>'
+            '<a href="https://example.com">Сайт</a>'
             .'<a href="https://max.ru/bot?startapp=booking">Бот</a>'
             .'<a href="javascript:alert(1)">Плохо</a>',
         );
 
-        $this->assertStringContainsString('href="https://chisto-service.ru"', $result);
+        $this->assertStringContainsString('href="https://example.com"', $result);
         $this->assertStringContainsString('href="https://max.ru/bot?startapp=booking"', $result);
         $this->assertStringNotContainsString('javascript:', $result);
         $this->assertStringContainsString('Плохо', $result);

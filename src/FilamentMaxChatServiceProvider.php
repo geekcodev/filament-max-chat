@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat;
 
+use GeekCo\FilamentMaxChat\Console\MaxChatUpgradeCommand;
 use GeekCo\FilamentMaxChat\Http\Controllers\MaxAttachmentController;
 use GeekCo\FilamentMaxChat\Http\Controllers\UnreadCountController;
 use GeekCo\FilamentMaxChat\Livewire\OperatorChat as OperatorChatComponent;
@@ -30,6 +31,10 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
         $this->registerUnreadCountRoute();
 
         if ($this->app->runningInConsole()) {
+            $this->commands([
+                MaxChatUpgradeCommand::class,
+            ]);
+
             $this->publishes([
                 __DIR__.'/../config/filament-max-chat.php' => config_path('filament-max-chat.php'),
             ], 'filament-max-chat-config');

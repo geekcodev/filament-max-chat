@@ -1,7 +1,6 @@
 # Доработка пакета `geekcodev/filament-max-chat`
 
-Репозиторий: `filament-max-chat`. Ветка: `dev` → PR в `main` → тег `vX.Y.Z`. Обсуждение ведётся из проекта
-`chisto-service-mini-app`, где фикс уже сделан на app-уровне.
+Репозиторий: `filament-max-chat`. Ветка: `dev` → PR в `main` → тег `vX.Y.Z`.
 
 ## Проблема
 
@@ -69,7 +68,7 @@ public function storeIncomingForUser(
 
 ## Что это закроет в хост-приложении
 
-Хост-приложение (см. `chisto-service-mini-app`) сможет заменить текущий обход `app/app/Services/
+Хост-приложение сможет заменить текущий обход `app/app/Services/
 OperatorChatService.php`, который вручную собирает `Update`/`Message`/`MessageBody`:
 
 ```php

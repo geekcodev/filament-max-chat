@@ -8,9 +8,9 @@
 ## 1. О проекте
 
 - **Что это.** Filament-плагин **`geekcodev/filament-max-chat`** — **чат оператора** с пользователями MAX-мессенджера
-  внутри Filament-панели. Строится поверх `geekcodev/laravel-max-client` (реестр чатов `max_chats`/`max_users`,
-  вебхук-доставка апдейтов) и ядра `geekcodev/max-php-client` (Bot API MAX). Репозиторий/рабочая папка —
-  `filament-max-chat`, переиспользуемый автономный пакет.
+  внутри Filament-панели. Строится поверх `geekcodev/laravel-max-client` (реестр чатов `max_chats`/`max_users`/
+  `max_chat_users`, вебхук-доставка апдейтов) и ядра `geekcodev/max-php-client` (Bot API MAX). Репозиторий/рабочая
+  папка — `filament-max-chat`, переиспользуемый автономный пакет.
 - **Что даёт.** Страница `/admin/chat` в панели: список диалогов с непрочитанными счётчиками, лента сообщений с
   HTML-разметкой и вложениями, ответ оператора текстом или файлом, real-time доставка новых сообщений и глобальный
   счётчик непрочитанного на всех страницах панели. Своя таблица одна — `max_chat_messages`; реестр чатов и пользователей
@@ -30,19 +30,18 @@
 `composer show geekcodev/max-php-client` (по одному пакету за раз: два аргумента `composer show` не принимает), релизные
 теги — `git tag --sort=-v:refname` здесь и в соседних `../laravel-max-client`, `../max-php-client`.
 
-Constraint `geekcodev/laravel-max-client: ^1.1.0` в `composer.json` — исторический: с 1.1.0, а тем более с 1.2.0, одна и
-та же constraint разрешает и старую, и новую форму реестра, а код плагина рассчитан на **новую** (см. §5 «Форма
-реестра»). Поэтому проверяй форму реестра по факту (`composer show`), а не по цифре в constraint. Актуальное состояние
-перевода на
-`laravel-max-client` 1.2 и красный Gate из-за него зафиксированы в `.agents/plans/PLAN-filament-max-chat.md` — это
-первый пункт, который надо закрыть.
+Constraint `geekcodev/laravel-max-client: ^1.2.0` в `composer.json` — намеренно жёсткий: код плагина, миграции и тесты
+рассчитаны на форму реестра 1.2 (`max_chats.chat_id` — первичный ключ, связи в `max_chat_users`, §5 «Схема v1.2.0
+реестра»), а несовместимость с 1.1.x — ломающий переход, а не случайность. Но `composer.lock` не коммитится, поэтому
+фактически установленную версию всегда сверяй по `composer show`, а не по constraint в файле: расхождение даёт красный
+Gate (PHPStan, тесты). Release notes перехода — `.agents/release/RELEASE_NOTES_v1.1.0.md`, порядок обновления
+существующей установки — §5 и README «Обновление с v1.0.x на v1.1.0».
 
 ### Регрессии не чиним в стороннем проекте
 
-Если расхождение или пробел обнаружен в интеграционном Laravel-приложении, использующем этот пакет (эталонный
-потребитель — `/home/user/web/chisto-service-mini-app`), — это регрессия плагина, а не особенность приложения. Заводи
-задачу здесь (тест + фикс + релиз) и не предлагай обход в стороннем репозитории, если обход маскирует дефект самого
-пакета.
+Если расхождение или пробел обнаружен в интеграционном Laravel-приложении, использующем этот пакет, — это регрессия
+плагина, а не особенность приложения. Заводи задачу здесь (тест + фикс + релиз) и не предлагай обход в стороннем
+репозитории, если обход маскирует дефект самого пакета.
 
 ## 2. Ветки, git и релизы
 
@@ -109,7 +108,7 @@ Constraint `geekcodev/laravel-max-client: ^1.1.0` в `composer.json` — ист�
 
 ```
 config/filament-max-chat.php       publishable-конфиг (--tag=filament-max-chat-config)
-database/migrations/               миграция max_chat_messages (loadMigrationsFrom, публикация опциональна)
+database/migrations/               миграции max_chat_messages: create + nullable user_id (loadMigrationsFrom, публикация опциональна)
 lang/{ru,en}/chat.php              подписи UI страницы чата
 resources/
   css/filament-max-chat.css        стили чата и бейджа непрочитанного (импорт в теме хоста)
@@ -121,15 +120,19 @@ src/
   FilamentMaxChatPlugin.php           Filament v5 plugin: страница чата в панели
   Pages/OperatorChat.php              страница панели (доступ permissions.view)
   Livewire/OperatorChat.php           состояние чата: диалоги, лента, ответ, вложения (алиас filament-max-chat)
+  Console/MaxChatUpgradeCommand.php перевод истории переписки на форму реестра v1.2.0 (max-chat:upgrade)
   Services/
-    MaxMessageService.php            история: storeIncoming/storeIncomingForUser/storeOutgoing/conversations/
-                                     messagesFor/markRead/deleteMessage/clearHistory
+    MaxMessageService.php            история: storeIncoming/storeIncomingForUser/storeOutgoing/applyIncomingEdit/
+                                     applyIncomingRemoval/conversations/messagesFor/markRead/deleteMessage/
+                                     clearHistory
+    ChatMessagesSchemaRepoint.php    две фазы перевода max_chat_messages: remap() и repin() (обе зовёт
+                                     команда max-chat:upgrade, миграция плагина только create)
     MaxChatSender.php                 отправка в MAX: sendFormatted (HTML) / sendAttachment (uploadMedia + sendFile)
     MaxAttachmentStore.php            приватное хранение вложений (метаданные в JSON-колонке attachment)
     ChatProfileRefresher.php          троттлинг и диспатч фоновой подгрузки профиля (сам API не дёргает)
   Jobs/RefreshChatProfilesJob.php     фоновая подгрузка профиля через MaxUserProfileService (getChatMembers)
   Support/TextSanitizer.php           санитизация HTML под whitelist тегов MAX + toMaxHtml()
-  Models/MaxChat.php                  расширение пакетной модели клиента (связи messages/lastMessage/maxUser)
+  Models/MaxChat.php                  расширение пакетной модели клиента (messages/lastMessage, interlocutor, displayName)
   Models/MaxMessage.php               модель max_chat_messages
   Events/MaxMessageCreated.php        ShouldBroadcast в private-канал chat.channel
   Enums/{MaxMessageDirection,MaxMessageSender}.php
@@ -137,8 +140,11 @@ src/
   Http/Controllers/UnreadCountController.php     JSON-счётчик непрочитанного (HTTP-poll на всех страницах панели)
 tests/                             PHPUnit + Orchestra Testbench
   Fixtures/                          AdminPanelProvider, TestUser, миграция users, Gate chat.view/chat.answer
+  Support/MakesChats.php             фикстуры реестра чатов под схему v1.2.0 (makeChat, linkChatUser, makeChatWithUser)
+  Support/InspectsChatSchema.php     чтение внешних ключей таблицы для тестов команды перевода
   Unit/                              сервисы, sanitizer, модели, enums, job, страница, провайдер
-  Feature/                           Livewire OperatorChat, MaxAttachmentController, UnreadCountController
+  Feature/                           Livewire OperatorChat, MaxAttachmentController, UnreadCountController,
+                                     MaxChatMessagesSchema, ChatMessagesSchemaRepoint, MaxChatUpgradeCommand
 scripts/check-coverage.php           проверка порога покрытия (≥95% строк) по build/coverage.xml
 .agents/                            рабочая память проекта: plans/, release/, journals/{JOURNAL.md, sessions/} (см. 4.1)
 .github/workflows/ci.yml             один job: lint → phpstan → phpunit + coverage gate → audit
@@ -214,7 +220,11 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   приватный диск, эмитит `MaxMessageCreated`. Для действий пользователя без апдейта MAX (заявка, кнопка «Позвать
   оператора») есть `storeIncomingForUser(int $userId, int $chatId, ?User $user, ?string $text, ?string $messageId)`:
   профиль берётся из переданного `User` или резолвится из реестра `max_users`, сообщение сохраняется непрочитанным
-  входящим, в MAX ничего не отправляется.
+  входящим, в MAX ничего не отправляется. Правка и удаление сообщений в MAX (`message_edited`, `message_removed`) —
+  отдельные точки входа `applyIncomingEdit(Update)` и `applyIncomingRemoval(Update)`: обе ищут сообщение по паре «
+  `chat_id` + `message_id`» (идентификаторы сообщений уникальны внутри чата, а не глобально), правка без нового текста и
+  удаление с пустым `attachment` ничего не портят, удаление подчищает файл вложения через
+  `MaxAttachmentStore::deleteStored()`. Broadcast-событий на правку и удаление нет — лента обновляется опросом.
 - **Исходящие**: `MaxChatSender` — единственная точка отправки (`sendFormatted` с `format=html` после
   `TextSanitizer`; `sendAttachment` — `uploadMedia` + `sendFile`). Прямые вызовы `ApiClient` из Livewire запрещены.
 - **Вложения**: метаданные (type/path/name/mime/size) — JSON-колонка `attachment`; файлы на диске `attachments.disk`
@@ -231,19 +241,36 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   `on_list`, `both`. В тестах очередь подменена (`Queue::fake()`), иначе при `QUEUE_CONNECTION=sync` задача уйдёт в
   реальный API.
 - **Переопределение моделей**: `chat_model` — подкласс пакетного `GeekCo\LaravelMaxClient\Models\MaxChat` (таблица
-  `max_chats`); `user_model` — модель оператора для связи `operator_id`.
-- **Форма реестра**: перевод на `laravel-max-client` 1.2 (одна строка на чат, PK `chat_id`, связи в `max_chat_users`)
-  выполняется на ветке `feat/max-chat-registry-v1-2` и **не слит** в `dev` — поэтому в `dev` миграция
-  `max_chat_messages` ещё ссылается на `max_chats.id`, а колонки `chat_id`/`user_id` объявлены `unsignedBigInteger`.
-  Пока перевод не слит, код и тесты несовместимы с фактически установленным `laravel-max-client` 1.2 (Gate красный, §10
-  gotcha 1). Идентификаторы MAX бывают отрицательными (группы и каналы) — колонки идентификаторов должны быть
-  **знаковыми**
-  `bigInteger`, это делает перевод; тесты на SQLite такой случай не воспроизводят, поэтому знаковость проверяется по
-  исходникам миграций.
-- **Миграция** `0001_01_01_000001_create_max_chat_messages_table.php` грузится автоматически из пакета
-  (`loadMigrationsFrom`), публикация опциональна. FK на `max_chats` требует опубликованных миграций laravel-max-client
-  (см. README «Требования»). Уже выполненные миграции нельзя править на месте: новая колонка — только отдельной
-  аддитивной миграцией.
+  `max_chats`); `user_model` — модель оператора для связи `operator_id`. Модель связи чата и пользователя берётся из
+  `laravel-max-client.chats.chat_users_model`.
+- **Схема v1.2.0 реестра**: в `max_chats` одна строка на чат, первичный ключ — `chat_id`, колонок `id`/`user_id` нет;
+  пользователи чата лежат в `max_chat_users`. Значит `max_chat_messages.max_chat_id` содержит `chat_id` чата в MAX, а
+  собеседник оператора берётся через `MaxChat::interlocutor()` (первый не-бот в `chatUsers`). Отсутствие собеседника —
+  штатная ситуация, а не ошибка: отправка в MAX идёт на `chat_id` (получатель `user_id` не обязателен), поэтому входящие
+  с пустым sender, ответы оператора и поиск по таким чатам не должны теряться. Идентификаторы MAX бывают отрицательными
+  (группы и каналы) — колонки идентификаторов **знаковые** `bigInteger`; тесты на SQLite такой случай не воспроизводят,
+  поэтому знаковость проверяется по исходникам миграций (§10 gotcha 16). Идентификаторы **сообщений**, наоборот,
+  строковые (`message_id` в MAX — строка) и уникальны только внутри чата, поэтому поиск локального сообщения по апдейту
+  всегда идёт по паре «`chat_id` + `message_id» — иначе событие из одного чата перепишет историю другого.
+- **Миграции** грузятся автоматически из пакета (`loadMigrationsFrom`, публикация опциональна). У плагина две
+  миграции: `0001_01_01_000001_create_max_chat_messages_table.php` — create-миграция под форму реестра v1.2.0 с
+  `user_id` **NOT NULL**, и `0001_01_01_000003_make_max_chat_messages_user_id_nullable.php` — аддитивная миграция,
+  снимающая `NOT NULL`: у чата, чей состав в `max_chat_users` ещё не синхронизирован (канал, группа, куда бота только что
+  добавили), собеседника нет. Она обратная (`down()` подставляет `chat_id` вместо `null`, чтобы откат не падал на
+  данных) и сохраняет индексы при пересборке таблицы. Выполненные миграции нельзя править на месте — новая колонка
+  или новое ограничение добавляются только отдельной аддитивной миграцией, поэтому правка create-миграции допустима
+  лишь пока релиз не опубликован. Миграций, переписывающих данные, у плагина нет. FK требует
+  опубликованных миграций laravel-max-client (`max_chats`, `max_chat_users`, см. README «Требования»). Перенос истории
+  на новую форму реестра миграцией **не** делается: `php artisan migrate` проходит целиком до `max:upgrade`, поэтому
+  фаза remap выполняется внутри команды — иначе после `migrate` база осталась бы наполовину переведённой. Без команды
+  схема остаётся целиком старой, перевод
+  выполняется целиком и возобновляемо.
+- **Порядок обновления существующей установки**: `php artisan migrate`, затем `php artisan max-chat:upgrade`
+  (внутри зовёт `max:upgrade`). Отдельно `max:upgrade` не запускают: пока висит FK из `max_chat_messages`, адаптер не
+  сможет пересобрать `max_chats`. Три ограничения СУБД по порядку: FK надо снять до пересборки `max_chats`, значения
+  перенести до неё же (соответствие «старый id → chat_id» исчезает с колонкой `id`), а вернуть FK на
+  `max_chats.chat_id` — только после (пока эта колонка не первичный ключ, ограничение не создаётся). Все три шага
+  разнесены на две фазы `ChatMessagesSchemaRepoint` (remap до `max:upgrade`, repin после) и выполняются командой;
 
 ### Соглашения
 
@@ -327,11 +354,11 @@ docker compose exec -T app composer security-audit # composer audit
 
 ## 10. Частые ошибки (gotchas)
 
-1. **Сверить `dev` с фактически установленным `laravel-max-client`.** Constraint `^1.1.0` разрешает и 1.1, и 1.2, а
-   `composer.lock` не коммитится. Сейчас в `dev` стоит код под старую форму реестра (`max_chats.id`,
-   `unsignedBigInteger('chat_id')`), а установлен 1.2 (`chat_id` — PK, связи в `max_chat_users`) → Gate красный
-   (PHPStan, тесты). Проверка: `composer show geekcodev/laravel-max-client` + §5 «Форма реестра». План —
-   `.agents/plans/PLAN-filament-max-chat.md`.
+1. **Сверь форму реестра с фактически установленным `laravel-max-client`.** Constraint `^1.2.0` в `composer.json`
+   жёсткий, но `composer.lock` не коммитится — установленная версия может отличаться. Код плагина рассчитан на форму 1.2
+   (`max_chats.chat_id` — PK, связи в `max_chat_users`); на 1.1.x PHPStan и тесты красные. Проверка:
+   `composer show geekcodev/laravel-max-client` + §5 «Схема v1.2.0 реестра». Если версия адаптера снова поменяет форму
+   реестра, план перевода — `.agents/plans/PLAN-filament-max-chat.md`.
 2. **Порядок provider'ов в Testbench**: Livewire подключай **последним** (`tests/TestCase.php`). Если Livewire
    зарегистрировать раньше Filament, `SupportServiceProvider` перебьёт биндинг хранилища состояния Livewire, и состояние
    теряется между вызовами — тесты падают странно.

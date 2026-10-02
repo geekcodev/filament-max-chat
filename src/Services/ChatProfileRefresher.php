@@ -23,14 +23,22 @@ class ChatProfileRefresher
             return;
         }
 
-        $chat = $this->chatModel()::query()->with('maxUser')->find($maxChatId);
+        $chat = $this->chatModel()::query()
+            ->with('chatUsers.maxUser')
+            ->find($maxChatId);
 
         if ($chat === null || ! $this->isDue($chat)) {
             return;
         }
 
+        $userId = $chat->interlocutorId();
+
+        if ($userId === null) {
+            return;
+        }
+
         $this->dispatch([
-            ['user_id' => (int) $chat->user_id, 'chat_id' => $chat->chat_id],
+            ['user_id' => $userId, 'chat_id' => $chat->chat_id],
         ]);
     }
 
@@ -47,7 +55,11 @@ class ChatProfileRefresher
 
         foreach ($conversations as $chat) {
             if ($this->isDue($chat)) {
-                $pending[] = ['user_id' => (int) $chat->user_id, 'chat_id' => $chat->chat_id];
+                $userId = $chat->interlocutorId();
+
+                if ($userId !== null) {
+                    $pending[] = ['user_id' => $userId, 'chat_id' => $chat->chat_id];
+                }
             }
         }
 
@@ -66,7 +78,7 @@ class ChatProfileRefresher
 
     private function isDue(MaxChat $chat): bool
     {
-        $user = $chat->maxUser;
+        $user = $chat->interlocutor();
 
         if ($user === null) {
             return false;

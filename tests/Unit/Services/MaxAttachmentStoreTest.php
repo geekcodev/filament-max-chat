@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 class MaxAttachmentStoreTest extends TestCase
 {
@@ -166,6 +167,31 @@ class MaxAttachmentStoreTest extends TestCase
         $this->assertSame('report.pdf', $meta['name']);
         $this->assertSame('application/pdf', $meta['mime']);
         Storage::disk('local')->assertExists($meta['path']);
+    }
+
+    public function test_store_from_upload_fails_loudly_when_the_source_cannot_be_read(): void
+    {
+        Storage::fake('local');
+
+        $uploaded = UploadedFile::fake()->create('report.pdf', 10, 'application/pdf');
+        $path = $uploaded->getRealPath();
+
+        $this->assertIsString($path);
+        chmod($path, 0o000);
+
+        // Шум от fopen глушим, иначе обработчик Laravel превратит warning в
+        // ErrorException раньше, чем сработает проверка на $stream === false.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $this->expectException(RuntimeException::class);
+            $this->expectExceptionMessage('Unable to open file for reading');
+
+            app(MaxAttachmentStore::class)->storeFromUpload($uploaded);
+        } finally {
+            restore_error_handler();
+            chmod($path, 0o600);
+        }
     }
 
     public function test_store_from_upload_stores_image_type(): void
@@ -393,5 +419,34 @@ class MaxAttachmentStoreTest extends TestCase
         $this->assertSame('image', $result[1]['type']);
         Storage::disk('local')->assertExists($result[0]['path'] ?? '');
         Storage::disk('local')->assertExists($result[1]['path'] ?? '');
+    }
+
+    public function test_delete_stored_removes_only_paths_inside_attachments_directory(): void
+    {
+        Storage::fake('local');
+        $disk = Storage::disk('local');
+        $disk->put('chat-attachments/a.png', 'bytes');
+        $disk->put('secret/b.png', 'bytes');
+
+        app(MaxAttachmentStore::class)->deleteStored([
+            ['type' => 'image', 'path' => 'chat-attachments/a.png'],
+            ['type' => 'image', 'path' => 'secret/b.png'],
+            ['type' => 'image', 'path' => '../../secret/c.png'],
+            ['type' => 'image'],
+            'not-an-array',
+        ]);
+
+        $disk->assertMissing('chat-attachments/a.png');
+        $disk->assertExists('secret/b.png');
+    }
+
+    public function test_delete_stored_accepts_null_attachment(): void
+    {
+        Storage::fake('local');
+        Storage::disk('local')->put('chat-attachments/a.png', 'bytes');
+
+        app(MaxAttachmentStore::class)->deleteStored(null);
+
+        Storage::disk('local')->assertExists('chat-attachments/a.png');
     }
 }
