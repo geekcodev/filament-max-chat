@@ -134,7 +134,7 @@ class MaxChatMessagesSchemaTest extends TestCase
      */
     private function migration(): Migration
     {
-        $file = dirname(__DIR__, 2).'/database/migrations/0001_01_01_000003_make_max_chat_messages_user_id_nullable.php';
+        $file = dirname(__DIR__, 2).'/database/migrations/0000_02_000002_make_max_chat_messages_user_id_nullable.php';
 
         $this->assertFileExists($file);
 
