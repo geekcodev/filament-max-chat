@@ -84,6 +84,42 @@ class RefreshChatProfilesJobTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    public function test_resolve_user_returns_registry_user(): void
+    {
+        $this->makeRegistryUser(111, ['first_name' => 'Иван']);
+
+        $job = new RefreshChatProfilesJob();
+        $user = $job->resolveUser(111);
+
+        $this->assertNotNull($user);
+        $this->assertSame(111, $user->user_id);
+    }
+
+    public function test_resolve_user_returns_null_for_missing_user(): void
+    {
+        $job = new RefreshChatProfilesJob();
+
+        $this->assertNull($job->resolveUser(999));
+    }
+
+    public function test_handle_resolves_active_chat_when_chat_id_is_missing(): void
+    {
+        $this->makeRegistryUser(111, [
+            'first_name' => 'Иван',
+            'avatar_url' => 'https://example/avatar.jpg',
+            'full_avatar_url' => 'https://example/full.jpg',
+            'profile_checked_at' => now(),
+        ]);
+
+        $this->createChat(userId: 111, chatId: 222);
+
+        $job = new RefreshChatProfilesJob([['user_id' => 111, 'chat_id' => null]]);
+
+        $job->handle(app(MaxUserProfileService::class));
+
+        $this->addToAssertionCount(1);
+    }
+
     private function createChat(
         int $userId,
         int $chatId,

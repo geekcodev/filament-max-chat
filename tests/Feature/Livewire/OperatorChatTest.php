@@ -956,6 +956,55 @@ class OperatorChatTest extends TestCase
             ->assertSee('Анонс');
     }
 
+    public function test_group_chat_shows_sender_name_and_avatar_of_each_message(): void
+    {
+        app()->setLocale('ru');
+
+        $staff = $this->createStaff();
+        $chat = $this->makeChat(-888, [
+            'chat_type' => ChatType::Chat,
+            'title' => 'Проект',
+            'icon_url' => 'https://example/group.jpg',
+        ]);
+        $this->makeRegistryUser(111, [
+            'first_name' => 'Иван',
+            'last_name' => 'Петров',
+            'avatar_url' => 'https://example/ivan.jpg',
+        ]);
+        $this->makeRegistryUser(222, [
+            'first_name' => 'Мария',
+            'last_name' => 'Сидорова',
+            'avatar_url' => 'https://example/maria.jpg',
+        ]);
+        $this->linkChatUser(-888, 111);
+        $this->linkChatUser(-888, 222);
+
+        $this->createMessageFor($chat, 111, 'Привет от Ивана');
+        $this->createMessageFor($chat, 222, 'Привет от Марии');
+
+        // В списке у группы аватар — иконка чата, а в ленте у каждого входящего
+        // сообщения — имя и аватар его автора, а не одного и того же собеседника.
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('https://example/group.jpg')
+            ->assertSee('Иван Петров')
+            ->assertSee('Мария Сидорова')
+            ->assertSee('https://example/ivan.jpg')
+            ->assertSee('https://example/maria.jpg');
+    }
+
+    private function createMessageFor(MaxChat $chat, int $userId, string $text): MaxMessage
+    {
+        return MaxMessage::query()->create([
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => $userId,
+            'chat_id' => $chat->chat_id,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
+            'text' => $text,
+        ]);
+    }
+
     private function createUser(bool $canView = false, bool $canAnswer = false): TestUser
     {
         return TestUser::query()->create([

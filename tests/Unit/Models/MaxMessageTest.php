@@ -10,6 +10,8 @@ use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Tests\Support\MakesChats;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
+use GeekCo\LaravelMaxClient\Models\MaxUser;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class MaxMessageTest extends TestCase
@@ -107,6 +109,77 @@ class MaxMessageTest extends TestCase
 
         $this->assertInstanceOf(MaxChat::class, $message->maxChat);
         $this->assertSame($chat->chat_id, $message->maxChat->chat_id);
+    }
+
+    public function test_sender_relation_returns_author_of_incoming_message(): void
+    {
+        $chat = $this->makeChatWithUser(222, 111);
+
+        $message = MaxMessage::query()->create([
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => 111,
+            'chat_id' => 222,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
+            'text' => 'Привет',
+        ]);
+
+        $this->assertInstanceOf(MaxUser::class, $message->sender);
+        $this->assertSame(111, $message->sender->user_id);
+        $this->assertSame('Иван Петров', $message->senderName());
+    }
+
+    public function test_sender_name_uses_author_not_interlocutor_in_group(): void
+    {
+        $chat = $this->makeChat(-888, ['chat_type' => ChatType::Chat]);
+        $this->makeRegistryUser(111, ['first_name' => 'Иван', 'last_name' => 'Петров']);
+        $this->makeRegistryUser(222, ['first_name' => 'Мария', 'last_name' => 'Сидорова']);
+        $this->linkChatUser(-888, 111);
+        $this->linkChatUser(-888, 222);
+
+        $message = MaxMessage::query()->create([
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => 222,
+            'chat_id' => -888,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
+            'text' => 'Привет',
+        ]);
+
+        // Собеседник группы — первый не-бот (111), но подпись должна быть у автора (222).
+        $this->assertSame('Мария Сидорова', $message->senderName());
+    }
+
+    public function test_sender_name_is_null_for_outgoing_message(): void
+    {
+        $chat = $this->makeChatWithUser(222, 111);
+
+        $message = MaxMessage::query()->create([
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => 111,
+            'chat_id' => 222,
+            'direction' => MaxMessageDirection::Out,
+            'sender_type' => MaxMessageSender::Operator,
+            'text' => 'Ответ',
+        ]);
+
+        $this->assertNull($message->senderName());
+    }
+
+    public function test_sender_name_falls_back_to_chat_label_without_sender(): void
+    {
+        $chat = $this->makeChat(-777, ['chat_type' => ChatType::Channel, 'title' => 'Новости']);
+
+        $message = MaxMessage::query()->create([
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => null,
+            'chat_id' => -777,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
+            'text' => 'Анонс',
+        ]);
+
+        $this->assertSame(__('filament-max-chat::chat.sender.channel'), $message->senderName());
     }
 
     /**

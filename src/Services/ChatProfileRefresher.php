@@ -6,6 +6,7 @@ namespace GeekCo\FilamentMaxChat\Services;
 
 use GeekCo\FilamentMaxChat\Jobs\RefreshChatProfilesJob;
 use GeekCo\FilamentMaxChat\Models\MaxChat;
+use GeekCo\LaravelMaxClient\Models\MaxChatUser;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -27,19 +28,15 @@ class ChatProfileRefresher
             ->with('chatUsers.maxUser')
             ->find($maxChatId);
 
-        if ($chat === null || ! $this->isDue($chat)) {
+        if ($chat === null) {
             return;
         }
 
-        $userId = $chat->interlocutorId();
+        $pending = $this->pendingForChat($chat);
 
-        if ($userId === null) {
-            return;
+        if ($pending !== []) {
+            $this->dispatch($pending);
         }
-
-        $this->dispatch([
-            ['user_id' => $userId, 'chat_id' => $chat->chat_id],
-        ]);
     }
 
     /**
@@ -54,13 +51,7 @@ class ChatProfileRefresher
         $pending = [];
 
         foreach ($conversations as $chat) {
-            if ($this->isDue($chat)) {
-                $userId = $chat->interlocutorId();
-
-                if ($userId !== null) {
-                    $pending[] = ['user_id' => $userId, 'chat_id' => $chat->chat_id];
-                }
-            }
+            $pending = [...$pending, ...$this->pendingForChat($chat)];
         }
 
         if ($pending !== []) {
@@ -76,14 +67,61 @@ class ChatProfileRefresher
         RefreshChatProfilesJob::dispatch($users);
     }
 
-    private function isDue(MaxChat $chat): bool
+    /**
+     * Все собеседники чата, которым нужно обновить профиль. Раньше проверялся
+     * только interlocutor() (первый не-бот), поэтому в группе аватары остальных
+     * участников не подгружались, и у каждого входящего сообщения показывался
+     * аватар одного и того же собеседника.
+     *
+     * @return list<array{user_id: int, chat_id: int|null}>
+     */
+    private function pendingForChat(MaxChat $chat): array
     {
-        $user = $chat->interlocutor();
+        $pending = [];
 
-        if ($user === null) {
-            return false;
+        foreach ($this->participants($chat) as $user) {
+            if (! $this->isDue($user)) {
+                continue;
+            }
+
+            $pending[] = ['user_id' => (int) $user->user_id, 'chat_id' => $chat->chat_id];
         }
 
+        return $pending;
+    }
+
+    /**
+     * Не-боты из состава чата: у диалога один, у группы и канала — все
+     * участники, заведённые в реестре max_chat_users.
+     *
+     * @return Collection<int, MaxUser>
+     */
+    private function participants(MaxChat $chat): Collection
+    {
+        if ($chat->relationLoaded('chatUsers')) {
+            /** @var Collection<int, MaxChatUser> $links */
+            $links = $chat->getRelation('chatUsers');
+        } else {
+            /** @var Collection<int, MaxChatUser> $links */
+            $links = $chat->chatUsers()->with('maxUser')->get();
+        }
+
+        $users = [];
+
+        foreach ($links as $link) {
+            /** @var MaxUser|null $user */
+            $user = $link->maxUser;
+
+            if ($user !== null && ! $user->is_bot) {
+                $users[] = $user;
+            }
+        }
+
+        return new Collection($users);
+    }
+
+    private function isDue(MaxUser $user): bool
+    {
         $userId = (int) $user->user_id;
 
         if (Cache::has($this->cacheKey($userId))) {

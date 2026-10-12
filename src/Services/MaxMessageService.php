@@ -280,7 +280,7 @@ class MaxMessageService
 
         return MaxMessage::query()
             ->where('max_chat_id', $maxChatId)
-            ->with('maxChat.chatUsers.maxUser')
+            ->with(['maxChat', 'sender'])
             ->latest()
             ->limit($limit)
             ->get()
@@ -298,7 +298,7 @@ class MaxMessageService
         return MaxMessage::query()
             ->where('max_chat_id', $maxChatId)
             ->where('id', '<', $beforeMessageId)
-            ->with('maxChat.chatUsers.maxUser')
+            ->with(['maxChat', 'sender'])
             ->latest()
             ->limit($limit)
             ->get()
