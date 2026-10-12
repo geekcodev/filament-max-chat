@@ -1001,16 +1001,22 @@ class OperatorChatTest extends TestCase
         $chat = $this->makeChatWithUser(-555, 111);
 
         // Без выбранного чата список занимает всю ширину, а панель переписки
-        // скрыта на мобильных и показывается только на широком экране.
+        // скрыта на мобильных и показывается только на широком экране. Корень
+        // держит минимальную высоту, иначе на телефоне в горизонтальной
+        // ориентации формы ответа хватает, чтобы выдавить ленту сообщений.
         Livewire::actingAs($staff)
             ->test(OperatorChat::class)
+            ->assertSee('h-[75vh] min-h-[22rem]', false)
             ->assertSee('w-full shrink-0 overflow-y-auto', false)
             ->assertSee('hidden md:flex', false);
 
         // После выбора чата список скрывается на мобильных, а в шапке появляется
-        // кнопка возврата к списку.
+        // кнопка возврата к списку. Лента сообщений занимает остаток высоты,
+        // форма ответа не сжимается.
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('min-h-0 flex-1 space-y-3 overflow-y-auto', false)
+            ->assertSee('shrink-0 border-t', false)
             ->assertSee('hidden md:block', false)
             ->assertSee('md:hidden', false)
             ->assertSee('wire:click="$set(\'activeChatId\', null)"', false)
