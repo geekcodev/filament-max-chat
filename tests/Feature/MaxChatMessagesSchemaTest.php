@@ -43,6 +43,34 @@ class MaxChatMessagesSchemaTest extends TestCase
         $this->assertContains('max_chat_messages_max_chat_id_created_at_index', $indexes);
         $this->assertContains('max_chat_messages_user_id_chat_id_created_at_index', $indexes);
         $this->assertContains('max_chat_messages_created_at_index', $indexes);
+        $this->assertContains('max_chat_messages_unread_index', $indexes);
+    }
+
+    public function test_unread_index_migration_is_reversible(): void
+    {
+        $this->assertTrue(Schema::hasIndex('max_chat_messages', 'max_chat_messages_unread_index'));
+
+        $migration = $this->unreadIndexMigration();
+
+        /** @phpstan-ignore method.notFound (методы есть у анонимного класса) */
+        $migration->down();
+
+        $this->assertFalse(Schema::hasIndex('max_chat_messages', 'max_chat_messages_unread_index'));
+
+        /** @phpstan-ignore method.notFound (методы есть у анонимного класса) */
+        $migration->up();
+
+        $this->assertTrue(Schema::hasIndex('max_chat_messages', 'max_chat_messages_unread_index'));
+    }
+
+    public function test_unread_index_migration_does_not_fail_when_index_exists(): void
+    {
+        $migration = $this->unreadIndexMigration();
+
+        /** @phpstan-ignore method.notFound (методы есть у анонимного класса) */
+        $migration->up();
+
+        $this->assertTrue(Schema::hasIndex('max_chat_messages', 'max_chat_messages_unread_index'));
     }
 
     public function test_message_without_user_id_is_stored_and_read(): void
@@ -139,6 +167,23 @@ class MaxChatMessagesSchemaTest extends TestCase
     private function migration(): Migration
     {
         $file = dirname(__DIR__, 2).'/database/migrations/0000_02_000002_make_max_chat_messages_user_id_nullable.php';
+
+        $this->assertFileExists($file);
+
+        $migration = require $file;
+
+        $this->assertInstanceOf(Migration::class, $migration);
+
+        /** @var Migration $migration */
+        return $migration;
+    }
+
+    /**
+     * @return Migration&object{}
+     */
+    private function unreadIndexMigration(): Migration
+    {
+        $file = dirname(__DIR__, 2).'/database/migrations/0000_02_000003_add_unread_index_to_max_chat_messages.php';
 
         $this->assertFileExists($file);
 
