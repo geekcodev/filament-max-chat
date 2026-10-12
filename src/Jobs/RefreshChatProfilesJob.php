@@ -6,6 +6,7 @@ namespace GeekCo\FilamentMaxChat\Jobs;
 
 use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\LaravelMaxClient\Services\MaxUserProfileService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -38,16 +39,35 @@ class RefreshChatProfilesJob implements ShouldQueue
     public function handle(MaxUserProfileService $profile): void
     {
         foreach ($this->users as $entry) {
-            $chat = $this->resolveActiveChat((int) $entry['user_id']);
+            $userId = (int) $entry['user_id'];
+            $user = $this->resolveUser($userId);
 
-            $user = $chat?->interlocutor();
-
-            if ($user === null) {
+            if ($user === null || $user->is_bot) {
                 continue;
             }
 
-            $profile->ensureAvatar($user, $chat->chat_id);
+            $chatId = $entry['chat_id'] !== null
+                ? (int) $entry['chat_id']
+                : $this->resolveActiveChat($userId)?->chat_id;
+
+            $profile->ensureAvatar($user, $chatId);
         }
+    }
+
+    /**
+     * Отправитель из реестра max_users. Раньше задача искала чат по user_id и
+     * обновляла его собеседника (interlocutor), игнорируя переданный user_id,
+     * поэтому в группе профили остальных участников не подгружались.
+     */
+    public function resolveUser(int $userId): ?MaxUser
+    {
+        /** @var class-string<MaxUser> $model */
+        $model = config()->string('laravel-max-client.users.model', MaxUser::class);
+
+        /** @var MaxUser|null $user */
+        $user = $model::query()->find($userId);
+
+        return $user;
     }
 
     /**

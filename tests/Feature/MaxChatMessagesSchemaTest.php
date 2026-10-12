@@ -29,9 +29,14 @@ class MaxChatMessagesSchemaTest extends TestCase
 
         $indexes = [];
 
-        foreach (Schema::getIndexes('max_chat_messages') as $index) {
-            if (is_array($index) && is_string($index['name'] ?? null)) {
-                $indexes[] = $index['name'];
+        /** @var list<array<string, mixed>> $rawIndexes */
+        $rawIndexes = Schema::getIndexes('max_chat_messages');
+
+        foreach ($rawIndexes as $index) {
+            $name = $index['name'] ?? null;
+
+            if (is_string($name)) {
+                $indexes[] = $name;
             }
         }
 
@@ -71,11 +76,10 @@ class MaxChatMessagesSchemaTest extends TestCase
 
         $foreignKeys = [];
 
-        foreach (Schema::getForeignKeys('max_chat_messages') as $foreignKey) {
-            if (! is_array($foreignKey)) {
-                continue;
-            }
+        /** @var list<array<string, mixed>> $rawForeignKeys */
+        $rawForeignKeys = Schema::getForeignKeys('max_chat_messages');
 
+        foreach ($rawForeignKeys as $foreignKey) {
             $table = $foreignKey['foreign_table'] ?? null;
             $columns = $foreignKey['columns'] ?? null;
 
@@ -151,9 +155,11 @@ class MaxChatMessagesSchemaTest extends TestCase
      */
     private function column(string $name): array
     {
-        foreach (Schema::getColumns('max_chat_messages') as $column) {
-            if (is_array($column) && ($column['name'] ?? null) === $name) {
-                /** @var array<string, mixed> $column */
+        /** @var list<array<string, mixed>> $rawColumns */
+        $rawColumns = Schema::getColumns('max_chat_messages');
+
+        foreach ($rawColumns as $column) {
+            if (($column['name'] ?? null) === $name) {
                 return $column;
             }
         }

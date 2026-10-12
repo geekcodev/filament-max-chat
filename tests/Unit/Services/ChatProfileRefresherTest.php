@@ -9,6 +9,7 @@ use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Services\ChatProfileRefresher;
 use GeekCo\FilamentMaxChat\Tests\Support\MakesChats;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
@@ -119,6 +120,28 @@ class ChatProfileRefresherTest extends TestCase
 
         Queue::assertPushed(RefreshChatProfilesJob::class, static function (RefreshChatProfilesJob $job): bool {
             return $job->users === [['user_id' => 111, 'chat_id' => 222]];
+        });
+    }
+
+    public function test_refresh_for_group_chat_enqueues_all_non_bot_participants(): void
+    {
+        $refresh = app(ChatProfileRefresher::class);
+
+        $chat = $this->makeChat(-888, ['chat_type' => ChatType::Chat]);
+        $this->makeRegistryUser(111, ['first_name' => 'Иван']);
+        $this->makeRegistryUser(222, ['first_name' => 'Мария', 'last_name' => 'Сидорова']);
+        $this->makeRegistryUser(333, ['is_bot' => true, 'first_name' => 'Бот', 'last_name' => null]);
+        $this->linkChatUser(-888, 111);
+        $this->linkChatUser(-888, 222);
+        $this->linkChatUser(-888, 333);
+
+        $refresh->refreshForChat(-888);
+
+        Queue::assertPushed(RefreshChatProfilesJob::class, static function (RefreshChatProfilesJob $job): bool {
+            return $job->users === [
+                ['user_id' => 111, 'chat_id' => -888],
+                ['user_id' => 222, 'chat_id' => -888],
+            ];
         });
     }
 

@@ -6,6 +6,7 @@ namespace GeekCo\FilamentMaxChat\Models;
 
 use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
 use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\LaravelMaxClient\Models\MaxUser;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -23,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Illuminate\Support\Carbon|null $read_at
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property-read MaxUser|null $sender
  */
 class MaxMessage extends Model
 {
@@ -124,6 +126,34 @@ class MaxMessage extends Model
         return $this->belongsTo($chatModel, 'max_chat_id', 'chat_id');
     }
 
+    /**
+     * Отображаемое имя отправителя входящего сообщения: из профиля реестра, а
+     * если профиля нет — типовая подпись чата («Группа», «Канал»). Для исходящих
+     * сообщений имя не показывается.
+     */
+    public function senderName(): ?string
+    {
+        if ($this->direction !== MaxMessageDirection::In) {
+            return null;
+        }
+
+        $user = $this->sender;
+
+        if ($user instanceof MaxUser) {
+            if ($user->name !== null && $user->name !== '') {
+                return $user->name;
+            }
+
+            $name = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        return $this->maxChat?->senderFallbackName();
+    }
+
     /** @return BelongsTo<Model, $this> */
     public function operator(): BelongsTo
     {
@@ -131,5 +161,20 @@ class MaxMessage extends Model
         $operatorModel = config()->string('filament-max-chat.user_model');
 
         return $this->belongsTo($operatorModel, 'operator_id');
+    }
+
+    /**
+     * Отправитель входящего сообщения из реестра max_users. Идентификаторы
+     * сообщений уникальны внутри чата, а user_id в апдейте указывает на автора,
+     * поэтому в группе у каждого сообщения свой отправитель, а не собеседник чата.
+     *
+     * @return BelongsTo<MaxUser, $this>
+     */
+    public function sender(): BelongsTo
+    {
+        /** @var class-string<MaxUser> $userModel */
+        $userModel = config()->string('laravel-max-client.users.model', MaxUser::class);
+
+        return $this->belongsTo($userModel, 'user_id', 'user_id');
     }
 }

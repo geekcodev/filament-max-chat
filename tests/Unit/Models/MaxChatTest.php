@@ -98,6 +98,63 @@ class MaxChatTest extends TestCase
         $this->assertSame('Проект И2ТЕХ', $chat->displayName());
     }
 
+    public function test_avatar_url_uses_chat_icon_for_group(): void
+    {
+        $chat = $this->makeChat(333, [
+            'chat_type' => ChatType::Chat,
+            'icon_url' => 'https://example/group.jpg',
+        ]);
+        $this->makeRegistryUser(111, ['first_name' => 'Иван', 'avatar_url' => 'https://example/user.jpg']);
+        $this->linkChatUser(333, 111);
+
+        $fresh = $chat->fresh('chatUsers.maxUser');
+
+        $this->assertSame('https://example/group.jpg', $fresh?->avatarUrl());
+    }
+
+    public function test_avatar_url_uses_interlocutor_for_dialog(): void
+    {
+        $chat = $this->makeChatWithUser(222, 111, ['avatar_url' => 'https://example/user.jpg']);
+
+        $this->assertSame('https://example/user.jpg', $chat->fresh('chatUsers.maxUser')?->avatarUrl());
+    }
+
+    public function test_avatar_url_falls_back_to_interlocutor_when_group_has_no_icon(): void
+    {
+        $chat = $this->makeChat(333, ['chat_type' => ChatType::Chat]);
+        $this->makeRegistryUser(111, ['first_name' => 'Иван', 'avatar_url' => 'https://example/user.jpg']);
+        $this->linkChatUser(333, 111);
+
+        $this->assertSame('https://example/user.jpg', $chat->fresh('chatUsers.maxUser')?->avatarUrl());
+    }
+
+    public function test_avatar_url_is_null_without_icon_and_avatar(): void
+    {
+        $chat = $this->makeChatWithUser(222, 111, ['avatar_url' => null, 'full_avatar_url' => null]);
+
+        $this->assertNull($chat->fresh('chatUsers.maxUser')?->avatarUrl());
+    }
+
+    public function test_full_avatar_url_prefers_full_avatar_for_dialog(): void
+    {
+        $chat = $this->makeChatWithUser(222, 111, [
+            'avatar_url' => 'https://example/small.jpg',
+            'full_avatar_url' => 'https://example/full.jpg',
+        ]);
+
+        $this->assertSame('https://example/full.jpg', $chat->fresh('chatUsers.maxUser')?->fullAvatarUrl());
+    }
+
+    public function test_full_avatar_url_uses_chat_icon_for_group(): void
+    {
+        $chat = $this->makeChat(333, [
+            'chat_type' => ChatType::Chat,
+            'icon_url' => 'https://example/group.jpg',
+        ]);
+
+        $this->assertSame('https://example/group.jpg', $chat->fullAvatarUrl());
+    }
+
     private function createChat(): MaxChat
     {
         return $this->makeChatWithUser(222, 111);

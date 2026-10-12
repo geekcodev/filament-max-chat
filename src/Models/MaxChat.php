@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property int $chat_id
  * @property \GeekCo\LaravelMaxClient\Enums\MaxChatStatus $status
  * @property string|null $title
+ * @property string|null $icon_url
  * @property \Illuminate\Support\Carbon|null $last_activity_at
  * @property int $unread_count Computed attribute from MaxMessageService::conversations().
  */
@@ -84,6 +85,49 @@ class MaxChat extends BaseMaxChat
         }
 
         return 'chat ' . $this->chat_id;
+    }
+
+    /**
+     * Аватар карточки чата. У группы и канала это иконка чата из getChat()
+     * (`icon_url`): её меняет владелец чата, и именно она обновляется при
+     * синхронизации метаданных. Прежнее поведение подставляло аватар случайного
+     * участника (`interlocutor()`), поэтому смена аватарки группы в списке была
+     * не видна. У диалога собеседник один, поэтому берётся его аватар.
+     */
+    public function avatarUrl(): ?string
+    {
+        if ($this->isGroup()) {
+            $icon = $this->icon_url;
+
+            if ($icon !== null && $icon !== '') {
+                return $icon;
+            }
+        }
+
+        return $this->interlocutor()?->avatar_url;
+    }
+
+    /**
+     * Полный аватар для карточки профиля: та же логика, что и {@see self::avatarUrl()},
+     * но для диалога предпочитается large-вариант из профиля пользователя.
+     */
+    public function fullAvatarUrl(): ?string
+    {
+        if ($this->isGroup()) {
+            $icon = $this->icon_url;
+
+            if ($icon !== null && $icon !== '') {
+                return $icon;
+            }
+        }
+
+        $user = $this->interlocutor();
+
+        if ($user === null) {
+            return null;
+        }
+
+        return $user->full_avatar_url ?? $user->avatar_url;
     }
 
     /**

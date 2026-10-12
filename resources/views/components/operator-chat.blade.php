@@ -20,14 +20,15 @@
         </div>
         @forelse ($this->conversations as $chat)
             @php($listUser = $chat->interlocutor())
+            @php($listAvatar = $chat->avatarUrl())
             <button
                 type="button"
                 wire:key="chat-{{ $chat->chat_id }}"
                 wire:click="selectChat({{ $chat->chat_id }})"
                 class="flex w-full items-start gap-3 border-b border-gray-100 px-4 py-3 text-left hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5 {{ $activeChatId === $chat->chat_id ? 'bg-primary-50 dark:bg-primary-500/10' : '' }}"
             >
-                @if ($listUser?->avatar_url)
-                    <img src="{{ $listUser->avatar_url }}" alt="" class="h-10 w-10 shrink-0 rounded-full object-cover">
+                @if ($listAvatar)
+                    <img src="{{ $listAvatar }}" alt="" class="h-10 w-10 shrink-0 rounded-full object-cover">
                 @else
                     <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
                         <span class="text-sm font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($listUser?->first_name ?? $chat->displayName(), 0, 1) . mb_substr($listUser?->last_name ?? '', 0, 1)) }}</span>
@@ -67,10 +68,12 @@
         @else
             @php($activeChat = $this->activeConversation)
             @php($chatUser = $activeChat?->interlocutor())
+            @php($chatAvatar = $activeChat?->avatarUrl())
+            @php($chatFullAvatar = $activeChat?->fullAvatarUrl())
             <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-white/5">
                 <div class="flex min-w-0 items-center gap-2" x-data="{ showUserInfo: false }">
-                    @if ($chatUser?->avatar_url)
-                        <img src="{{ $chatUser->avatar_url }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
+                    @if ($chatAvatar)
+                        <img src="{{ $chatAvatar }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
                     @elseif ($chatUser)
                         <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
                             <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
@@ -111,8 +114,8 @@
                             @click.stop
                         >
                             <div class="flex flex-col items-center gap-3">
-                                @if ($chatUser?->full_avatar_url || $chatUser?->avatar_url)
-                                    <img src="{{ $chatUser->full_avatar_url ?? $chatUser->avatar_url }}" alt="" class="h-20 w-20 rounded-full object-cover">
+                                @if ($chatFullAvatar)
+                                    <img src="{{ $chatFullAvatar }}" alt="" class="h-20 w-20 rounded-full object-cover">
                                 @elseif ($chatUser)
                                     <div class="flex h-20 w-20 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
                                         <span class="text-2xl font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
@@ -169,20 +172,23 @@
                     {{ __('filament-max-chat::chat.loading') }}
                 </div>
                 @forelse ($this->messages as $message)
-                    <div wire:key="message-{{ $message->id }}" class="group relative flex {{ $message->direction === MaxMessageDirection::Out ? 'justify-end' : 'justify-start' }}">
-                        @if ($message->direction === MaxMessageDirection::In)
-                            @php($senderUser = $message->maxChat?->interlocutor())
-                            @php($userAvatar = $senderUser?->avatar_url)
-                            @php($senderLabel = $senderUser !== null ? trim(($senderUser->first_name ?? '') . ' ' . ($senderUser->last_name ?? '')) : $message->maxChat?->senderFallbackName())
-                            @if ($userAvatar)
-                                <img src="{{ $userAvatar }}" alt="" class="mr-2 mt-1 h-8 w-8 shrink-0 rounded-full object-cover">
+                    @php($isIncoming = $message->direction === MaxMessageDirection::In)
+                    @php($senderUser = $isIncoming ? $message->sender : null)
+                    @php($senderLabel = $message->senderName())
+                    <div wire:key="message-{{ $message->id }}" class="group relative flex {{ $isIncoming ? 'justify-start' : 'justify-end' }}">
+                        @if ($isIncoming)
+                            @if ($senderUser?->avatar_url)
+                                <img src="{{ $senderUser->avatar_url }}" alt="" class="mr-2 mt-1 h-8 w-8 shrink-0 rounded-full object-cover">
                             @else
                                 <div class="mr-2 mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10" title="{{ $senderLabel }}">
                                     <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($senderLabel ?? '?', 0, 1) . mb_substr($senderUser?->last_name ?? '', 0, 1)) }}</span>
                                 </div>
                             @endif
                         @endif
-                        <div class="relative max-w-[75%] rounded-lg px-3 py-2 text-sm {{ $message->direction === MaxMessageDirection::Out ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-900 dark:bg-white/10 dark:text-white' }}">
+                        <div class="relative max-w-[75%] rounded-lg px-3 py-2 text-sm {{ $isIncoming ? 'bg-gray-100 text-gray-900 dark:bg-white/10 dark:text-white' : 'bg-primary-600 text-white' }}">
+                            @if ($isIncoming && $senderUser !== null && ($message->maxChat?->isGroup() ?? false) && filled($senderLabel))
+                                <p class="mb-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">{{ $senderLabel }}</p>
+                            @endif
                             @if ($this->canAnswer)
                                 <button
                                     type="button"
