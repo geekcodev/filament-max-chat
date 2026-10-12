@@ -4,11 +4,11 @@
 @php($channel = config('filament-max-chat.broadcast_channel', 'chat.channel'))
 
 <div
-    class="flex h-[70vh] gap-4 overflow-hidden"
+    class="flex h-[75vh] gap-2 overflow-hidden md:h-[70vh] md:gap-4"
     data-channel="{{ $channel }}"
     wire:poll.{{ $pollInterval }}="refresh"
 >
-    <div class="w-80 shrink-0 overflow-y-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
+    <div class="{{ $activeChatId !== null ? 'hidden md:block' : 'block' }} w-full shrink-0 overflow-y-auto rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 md:w-80">
         <div class="border-b border-gray-100 px-3 py-2 dark:border-white/5">
             <input
                 type="search"
@@ -60,7 +60,7 @@
         @endforelse
     </div>
 
-    <div class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
+    <div class="{{ $activeChatId === null ? 'hidden md:flex' : 'flex' }} min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10">
         @if ($activeChatId === null)
             <div class="flex flex-1 items-center justify-center text-sm text-gray-500">
                 {{ __('filament-max-chat::chat.select_conversation') }}
@@ -72,6 +72,14 @@
             @php($chatFullAvatar = $activeChat?->fullAvatarUrl())
             <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2 dark:border-white/5">
                 <div class="flex min-w-0 items-center gap-2" x-data="{ showUserInfo: false }">
+                    <button
+                        type="button"
+                        wire:click="$set('activeChatId', null)"
+                        class="shrink-0 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/10 md:hidden"
+                        title="{{ __('filament-max-chat::chat.back_to_list') }}"
+                    >
+                        <x-heroicon-o-arrow-left class="h-5 w-5" />
+                    </button>
                     @if ($chatAvatar)
                         <img src="{{ $chatAvatar }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
                     @elseif ($chatUser)

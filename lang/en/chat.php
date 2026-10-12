@@ -35,6 +35,7 @@ return [
     'empty_conversations' => 'No active conversations',
     'no_search_results' => 'No results found for your search',
     'select_conversation' => 'Select a conversation on the left',
+    'back_to_list' => 'Back to conversations',
     'empty_messages' => 'No messages yet',
     'load_older' => '↑ Load older messages',
     'loading' => 'Loading…',

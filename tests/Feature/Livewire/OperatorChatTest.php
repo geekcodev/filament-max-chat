@@ -993,6 +993,30 @@ class OperatorChatTest extends TestCase
             ->assertSee('https://example/maria.jpg');
     }
 
+    public function test_layout_collapses_to_single_pane_on_mobile(): void
+    {
+        app()->setLocale('ru');
+
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(-555, 111);
+
+        // Без выбранного чата список занимает всю ширину, а панель переписки
+        // скрыта на мобильных и показывается только на широком экране.
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->assertSee('w-full shrink-0 overflow-y-auto', false)
+            ->assertSee('hidden md:flex', false);
+
+        // После выбора чата список скрывается на мобильных, а в шапке появляется
+        // кнопка возврата к списку.
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('hidden md:block', false)
+            ->assertSee('md:hidden', false)
+            ->assertSee('wire:click="$set(\'activeChatId\', null)"', false)
+            ->assertSee('К списку диалогов');
+    }
+
     private function createMessageFor(MaxChat $chat, int $userId, string $text): MaxMessage
     {
         return MaxMessage::query()->create([

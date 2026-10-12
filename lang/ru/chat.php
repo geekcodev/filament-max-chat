@@ -35,6 +35,7 @@ return [
     'empty_conversations' => 'Нет активных диалогов',
     'no_search_results' => 'Ничего не найдено по запросу',
     'select_conversation' => 'Выберите диалог слева',
+    'back_to_list' => 'К списку диалогов',
     'empty_messages' => 'Сообщений пока нет',
     'load_older' => '↑ Загрузить более ранние сообщения',
     'loading' => 'Загрузка…',
