@@ -4,7 +4,7 @@
 @php($channel = config('filament-max-chat.broadcast_channel', 'chat.channel'))
 
 <div
-    class="flex h-[75vh] gap-2 overflow-hidden md:h-[70vh] md:gap-4"
+    class="flex h-[75vh] min-h-[22rem] gap-2 overflow-hidden md:h-[70vh] md:gap-4"
     data-channel="{{ $channel }}"
     wire:poll.{{ $pollInterval }}="refresh"
 >
@@ -165,7 +165,7 @@
                     </div>
                 @endif
             </div>
-            <div id="chat-messages" class="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            <div id="chat-messages" class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
                 @if ($this->hasMoreMessages)
                     <div
                         wire:click="loadMoreMessages"
@@ -257,7 +257,7 @@
                 @endforelse
             </div>
 
-            <div class="border-t border-gray-100 p-3 dark:border-white/5">
+            <div class="shrink-0 border-t border-gray-100 p-3 dark:border-white/5">
                 @if ($this->canAnswer)
                     <form wire:submit="sendReply" class="space-y-2" x-data="fmcReplyEditor()">
                         <div class="flex flex-wrap items-center gap-1">
