@@ -27,6 +27,7 @@ use GeekCo\MaxPhpClient\Enum\AttachmentType;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use GeekCo\MaxPhpClient\Enum\UpdateType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
@@ -443,6 +444,40 @@ class MaxMessageServiceTest extends TestCase
         $found = $service->searchConversations('Петр');
 
         $this->assertCount(1, $found);
+    }
+
+    public function test_search_conversations_does_not_order_a_distinct_query(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Петр'));
+
+        /** @var list<string> $captured */
+        $captured = [];
+        DB::listen(static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$captured): void {
+            $captured[] = $query->sql;
+        });
+
+        $service->searchConversations('Петр');
+
+        $offenders = [];
+        foreach ($captured as $sql) {
+            if (str_contains(strtolower($sql), 'distinct') && str_contains(strtolower($sql), 'order by')) {
+                $offenders[] = $sql;
+            }
+        }
+
+        $this->assertSame([], $offenders);
+    }
+
+    public function test_search_conversations_is_case_insensitive(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Хочу купить дрон'));
+
+        $this->assertCount(1, $service->searchConversations('петр'));
+        $this->assertCount(1, $service->searchConversations('ПЕТР'));
+        $this->assertCount(1, $service->searchConversations('дрон'));
+        $this->assertCount(1, $service->searchConversations('ДРОН'));
     }
 
     public function test_search_conversations_treats_percent_as_literal(): void

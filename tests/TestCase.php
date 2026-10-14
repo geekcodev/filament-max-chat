@@ -8,6 +8,7 @@ use GeekCo\FilamentMaxChat\FilamentMaxChatServiceProvider;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\AdminPanelProvider;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
 use GeekCo\LaravelMaxClient\MaxServiceProvider;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -17,6 +18,13 @@ abstract class TestCase extends Orchestra
     protected function setUp(): void
     {
         parent::setUp();
+
+        $db = app('db')->connection();
+        if ($db->getDriverName() === 'sqlite') {
+            $db->getPdo()->sqliteCreateFunction('lower', static function (?string $value): string {
+                return mb_strtolower((string) $value, 'UTF-8');
+            });
+        }
 
         $this->loadMigrationsFrom(__DIR__.'/../vendor/geekcodev/laravel-max-client/database/migrations');
         $this->loadMigrationsFrom(__DIR__.'/Fixtures/Migrations');

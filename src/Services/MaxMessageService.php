@@ -216,17 +216,21 @@ class MaxMessageService
         // Связи с пользователями ищем LEFT JOIN, а не JOIN: у канала и группы
         // состав может быть ещё не синхронизирован, и такой чат обязан находиться
         // по тексту сообщений, а не выпадать из выдачи.
+        //
+        // Порядок задаётся финальным запросом ниже; здесь его нет намеренно:
+        // SELECT DISTINCT ... ORDER BY колонки, которой нет в select list,
+        // PostgreSQL отвергает (SQLSTATE 42P10), а сортировка chat_id всё равно
+        // была бы отброшена повторной выборкой моделей.
         $chatIds = DB::table('max_chats')
             ->leftJoin('max_chat_users', 'max_chat_users.chat_id', '=', 'max_chats.chat_id')
             ->leftJoin('max_users', 'max_users.user_id', '=', 'max_chat_users.user_id')
             ->leftJoin('max_chat_messages', 'max_chat_messages.max_chat_id', '=', 'max_chats.chat_id')
             ->where('max_chats.status', MaxChatStatus::Active)
             ->where(function (\Illuminate\Database\Query\Builder $query) use ($like): void {
-                $query->whereRaw('max_users.first_name LIKE ? ESCAPE \'!\'', [$like])
-                    ->orWhereRaw('max_users.last_name LIKE ? ESCAPE \'!\'', [$like])
-                    ->orWhereRaw('max_chat_messages.text LIKE ? ESCAPE \'!\'', [$like]);
+                $query->whereRaw('lower(max_users.first_name) LIKE lower(?) ESCAPE \'!\'', [$like])
+                    ->orWhereRaw('lower(max_users.last_name) LIKE lower(?) ESCAPE \'!\'', [$like])
+                    ->orWhereRaw('lower(max_chat_messages.text) LIKE lower(?) ESCAPE \'!\'', [$like]);
             })
-            ->orderByDesc('max_chats.last_activity_at')
             ->distinct()
             ->pluck('max_chats.chat_id');
 
