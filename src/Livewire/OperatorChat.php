@@ -146,13 +146,32 @@ class OperatorChat extends Component
             return;
         }
 
-        $this->service?->removeChat($this->activeChatId);
+        $chatId = $this->activeChatId;
+        $this->service?->removeChat($chatId);
 
         $this->activeChatId = null;
         $this->messages = new Collection();
 
         $this->dispatchUnreadCount();
-        $this->dispatch('chat-removed');
+    }
+
+    /**
+     * Диалог удалён в MAX (`dialog_removed`) или удалён другим оператором:
+     * broadcast-событие `chat-removed` закрывает ленту, если этот чат был выбран.
+     * Счётчик пересчитывается всегда — удалённый чат мог держать непрочитанные.
+     * Собственное действие оператора (`removeChat`) закрывает ленту само, поэтому
+     * локально событие не эмитится: иначе компонент обрабатывал бы свой же вызов
+     * и второй раз пересчитывал счётчик.
+     */
+    #[On('chat-removed')]
+    public function handleChatRemoved(int $chatId): void
+    {
+        if ($this->activeChatId === $chatId) {
+            $this->activeChatId = null;
+            $this->messages = new Collection();
+        }
+
+        $this->dispatchUnreadCount();
     }
 
     public function deleteMessage(int $messageId): void
@@ -342,7 +361,23 @@ class OperatorChat extends Component
 
         $this->dispatchUnreadCount();
 
-        $this->appendNewMessages();
+        $this->reconcileMessages();
+    }
+
+    /**
+     * Полная перезагрузка ленты открытого чата. Нужна для broadcast-событий
+     * `chat-message.updated`/`chat-message.deleted`: правка и удаление меняют уже
+     * показанные строки, поэтому добавлять только новые сообщения недостаточно.
+     */
+    #[On('chat-reload')]
+    public function reload(): void
+    {
+        if ($this->activeChatId === null) {
+            return;
+        }
+
+        $this->loadMessages();
+        $this->dispatchUnreadCount();
     }
 
     private function loadMessages(): void
@@ -361,27 +396,57 @@ class OperatorChat extends Component
         $this->dispatch('chat-unread', count: $this->service?->totalUnreadCount() ?? 0);
     }
 
-    private function appendNewMessages(): void
+    /**
+     * Синхронизация открытой ленты по опросу (`wire:poll`) — фолбэк, когда
+     * broadcast не настроен и `window.Echo` подписаться не смог. Новые сообщения
+     * дописываются в конец, а если в уже показанных строках обнаружилась правка
+     * или удаление — лента перечитывается целиком: иначе `message_removed`,
+     * `message_edited` и `dialog_cleared` остались бы на экране до выбора другого
+     * чата. Строки старше показанного окна (догруженные `loadMoreMessages`) не
+     * сравниваются — окно их всё равно не содержит.
+     */
+    private function reconcileMessages(): void
     {
         if ($this->activeChatId === null) {
             return;
         }
 
+        $fresh = $this->service?->messagesFor($this->activeChatId);
+
+        if ($fresh === null) {
+            return;
+        }
+
+        if ($this->messages->isEmpty() || $fresh->isEmpty()) {
+            $this->messages = $fresh;
+
+            return;
+        }
+
+        $freshById = $fresh->keyBy('id');
+        $oldestRenderedId = $fresh->first()->id;
+
+        foreach ($this->messages as $message) {
+            if (! $freshById->has($message->id)) {
+                if ($message->id >= $oldestRenderedId) {
+                    $this->loadMessages();
+
+                    return;
+                }
+
+                continue;
+            }
+
+            if ($freshById->get($message->id)?->text !== $message->text) {
+                $this->loadMessages();
+
+                return;
+            }
+        }
+
         $latest = $this->messages->last();
 
-        $newMessages = $this->service?->messagesFor($this->activeChatId);
-
-        if ($newMessages === null || $newMessages->isEmpty()) {
-            return;
-        }
-
-        if ($latest === null) {
-            $this->messages = $newMessages;
-
-            return;
-        }
-
-        $newOnly = $newMessages->filter(
+        $newOnly = $fresh->filter(
             static fn (MaxMessage $message): bool => $message->id > $latest->id,
         );
 

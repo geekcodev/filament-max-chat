@@ -195,6 +195,18 @@
         window.Echo.private(CHANNEL)
             .listen('.chat-message.created', function (e) {
                 handleMessage(e);
+            })
+            .listen('.chat-message.updated', function (e) {
+                handleMessage(e);
+            })
+            .listen('.chat-message.deleted', function (e) {
+                handleMessage(e);
+            })
+            .listen('.chat-message.cleared', function (e) {
+                handleMessage(e);
+            })
+            .listen('.chat-removed', function (e) {
+                handleMessage(e);
             });
     }
 

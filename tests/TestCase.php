@@ -8,7 +8,6 @@ use GeekCo\FilamentMaxChat\FilamentMaxChatServiceProvider;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\AdminPanelProvider;
 use GeekCo\FilamentMaxChat\Tests\Fixtures\TestUser;
 use GeekCo\LaravelMaxClient\MaxServiceProvider;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Orchestra\Testbench\TestCase as Orchestra;

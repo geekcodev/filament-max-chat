@@ -7,7 +7,10 @@ namespace GeekCo\FilamentMaxChat;
 use GeekCo\FilamentMaxChat\Console\MaxChatUpgradeCommand;
 use GeekCo\FilamentMaxChat\Http\Controllers\MaxAttachmentController;
 use GeekCo\FilamentMaxChat\Http\Controllers\UnreadCountController;
+use GeekCo\FilamentMaxChat\Listeners\HandleIncomingMaxUpdate;
 use GeekCo\FilamentMaxChat\Livewire\OperatorChat as OperatorChatComponent;
+use GeekCo\LaravelMaxClient\Webhook\MaxUpdateReceived;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Livewire\Livewire;
@@ -29,6 +32,7 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
 
         $this->registerAttachmentRoute();
         $this->registerUnreadCountRoute();
+        $this->registerIncomingUpdateListener();
 
         if ($this->app->runningInConsole()) {
             $this->commands([
@@ -79,5 +83,14 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
         )
             ->middleware('web')
             ->name('filament-max-chat.unread-count');
+    }
+
+    private function registerIncomingUpdateListener(): void
+    {
+        if (config()->boolean('filament-max-chat.updates.auto_handle', true) === false) {
+            return;
+        }
+
+        Event::listen(MaxUpdateReceived::class, HandleIncomingMaxUpdate::class);
     }
 }

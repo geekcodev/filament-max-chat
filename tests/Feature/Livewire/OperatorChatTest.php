@@ -238,6 +238,71 @@ class OperatorChatTest extends TestCase
         $this->assertNotNull($fresh->read_at);
     }
 
+    /**
+     * Без broadcast (нет Echo) удаление сообщения доезжает следующим `wire:poll`:
+     * `refresh()` сверяет показанные строки с базой и перечитывает ленту.
+     */
+    public function test_refresh_reloads_feed_when_message_deleted_without_broadcast(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Первое');
+        $removed = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Второе');
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        $removed->delete();
+
+        $component->call('refresh')
+            ->assertSet('messages', static fn (Collection $messages): bool => $messages->count() === 1);
+    }
+
+    public function test_refresh_reloads_feed_when_message_edited_without_broadcast(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $message = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Старый текст');
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        $message->forceFill(['text' => 'Новый текст'])->save();
+
+        $component->call('refresh')
+            ->assertSet('messages', static fn (Collection $messages): bool => $messages->count() === 1 && $messages->contains('text', 'Новый текст'));
+    }
+
+    public function test_refresh_clears_feed_when_history_cleared_without_broadcast(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Единственное');
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        MaxMessage::query()->where('max_chat_id', $chat->chat_id)->delete();
+
+        $component->call('refresh')
+            ->assertSet('messages', static fn (Collection $messages): bool => $messages->isEmpty());
+    }
+
+    public function test_refresh_appends_new_messages_without_broadcast(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Первое');
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Второе');
+
+        $component->call('refresh')
+            ->assertSet('messages', static fn (Collection $messages): bool => $messages->count() === 2);
+    }
+
     public function test_select_chat_dispatches_updated_unread_count(): void
     {
         $staff = $this->createStaff();
@@ -260,6 +325,28 @@ class OperatorChatTest extends TestCase
             ->test(OperatorChat::class, ['chat' => $chat->chat_id])
             ->call('refresh')
             ->assertDispatched('chat-unread', count: 0);
+    }
+
+    public function test_reload_dispatches_updated_unread_count(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Вопрос');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('reload')
+            ->assertDispatched('chat-unread', count: 0);
+    }
+
+    public function test_reload_without_selected_chat_does_nothing(): void
+    {
+        $staff = $this->createStaff();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->call('reload')
+            ->assertNotDispatched('chat-unread');
     }
 
     public function test_delete_message_dispatches_updated_unread_count(): void
@@ -458,6 +545,29 @@ class OperatorChatTest extends TestCase
         Livewire::actingAs($staff)
             ->test(OperatorChat::class)
             ->call('removeChat')
+            ->assertSet('activeChatId', null);
+    }
+
+    /**
+     * `chat-removed` приходит по broadcast от слушателя MAX (апдейт dialog_removed
+     * или удаление чата другим оператором): выбранная лента закрывается только
+     * для удалённого чата, чужие диалоги остаются открытыми.
+     */
+    public function test_handle_chat_removed_closes_only_the_removed_chat(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $other = $this->makeChatWithUser(333, 111);
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Вопрос');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('handleChatRemoved', $other->chat_id)
+            ->assertSet('activeChatId', $chat->chat_id);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('handleChatRemoved', $chat->chat_id)
             ->assertSet('activeChatId', null);
     }
 

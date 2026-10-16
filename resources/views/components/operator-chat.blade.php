@@ -419,6 +419,18 @@
                 window.Echo.private(channel)
                     .listen('.chat-message.created', () => {
                         Livewire.dispatch('chat-refresh');
+                    })
+                    .listen('.chat-message.updated', () => {
+                        Livewire.dispatch('chat-reload');
+                    })
+                    .listen('.chat-message.deleted', () => {
+                        Livewire.dispatch('chat-reload');
+                    })
+                    .listen('.chat-message.cleared', () => {
+                        Livewire.dispatch('chat-reload');
+                    })
+                    .listen('.chat-removed', (event) => {
+                        Livewire.dispatch('chat-removed', { chatId: event.max_chat_id });
                     });
 
                 return true;
