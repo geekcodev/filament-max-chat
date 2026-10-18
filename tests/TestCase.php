@@ -20,6 +20,9 @@ abstract class TestCase extends Orchestra
 
         $db = app('db')->connection();
         if ($db->getDriverName() === 'sqlite') {
+            // SQLite-функция lower() понижает только ASCII, поэтому регистронезависимый
+            // поиск на кириллице в тестах не работал бы. Подменяем её на mb_strtolower,
+            // повторяя Unicode-aware поведение lower() в MySQL и PostgreSQL.
             $db->getPdo()->sqliteCreateFunction('lower', static function (?string $value): string {
                 return mb_strtolower((string) $value, 'UTF-8');
             });

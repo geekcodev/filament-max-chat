@@ -131,7 +131,7 @@ src/
     ChatMessagesSchemaRepoint.php    две фазы перевода max_chat_messages: remap() и repin() (обе зовёт
                                      команда max-chat:upgrade, миграция плагина только create)
     MaxChatSender.php                 отправка в MAX: sendFormatted (HTML) / sendAttachment (uploadMedia + sendFile)
-    MaxAttachmentStore.php            приватное хранение вложений (метаданные в JSON-колонке attachment)
+    MaxAttachmentStore.php            приватное хранение вложений всех девяти типов (метаданные в JSON-колонке attachment)
     ChatProfileRefresher.php          троттлинг и диспатч фоновой подгрузки профиля (сам API не дёргает)
   Jobs/RefreshChatProfilesJob.php     фоновая подгрузка профиля через MaxUserProfileService (getChatMembers)
   Support/TextSanitizer.php           санитизация HTML под whitelist тегов MAX + toMaxHtml()
@@ -257,8 +257,15 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   идемпотентностью, а для единственного источника автообработку выключают ключом `updates.auto_handle` (gotcha 23).
 - **Исходящие**: `MaxChatSender` — единственная точка отправки (`sendFormatted` с `format=html` после
   `TextSanitizer`; `sendAttachment` — `uploadMedia` + `sendFile`). Прямые вызовы `ApiClient` из Livewire запрещены.
-- **Вложения**: метаданные (type/path/name/mime/size) — JSON-колонка `attachment`; файлы на диске `attachments.disk`
-  вне public; отдача только через `GET route.uri` с правом `permissions.view` (`MaxAttachmentController`).
+- **Вложения**: `MaxAttachmentStore` разбирает все девять типов `AttachmentType` и пишет метаданные в JSON-колонку
+  `attachment`. Скачиваются на приватный диск (`attachments.disk`, вне public) и отдаются только через `GET route.uri`
+  с правом `permissions.view` (`MaxAttachmentController`) изображение, стикер, видео (`payload.url.mp4`), аудио и файл
+  (метаданные `type/path/name/mime/size`, у стикера ещё `code`); контакт, геолокация, превью ссылки и inline-клавиатура
+  файла не имеют и хранятся как данные (`name`/`phone`, `latitude`/`longitude`, `url`/`title`/`description`,
+  `buttons`). `share.image_url` не скачивается — это чужой домен, а не CDN MAX (A04). Строковые поля ограничиваются по
+  длине, а `url` проходит проверку схемы `http`/`https` (`MaxAttachmentStore::httpUrl()` — тот же фильтр вызывается из
+  представления, поэтому `href` сохранённых в обход стора метаданных не становится `javascript:`). Вложение без данных
+  даёт подпись-заглушку в ленте, а не пустой пузырь.
 - **Real-time**: `MaxMessageCreated` (broadcastAs `chat-message.created`), а после правки/удаления/очистки —
   `MaxMessageUpdated` (`chat-message.updated`), `MaxMessageDeleted` (`chat-message.deleted`) и `MaxMessagesCleared`
   (`chat-message.cleared`) в private-канал `broadcast_channel`; удаление диалога — `MaxChatRemoved` (`chat-removed`).
@@ -266,9 +273,10 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   нет. Клиентская часть — `window.Echo` в `notification-script.blade.php`; `created` вызывает `chat-refresh` (дописать
   новые), `updated`/`deleted`/`cleared` — `chat-reload` (перечитать ленту целиком), `chat-removed` закрывает ленту, если
   удалён выбранный чат. Фолбэк — `wire:poll` (интервал `ui.poll_interval`): `refresh()` не только дописывает новые
-  сообщения, но и сверяет показанные строки с базой, поэтому правка и удаление без broadcast доезжают следующим тиком, а
-  не только при выборе другого чата. Глобальный счётчик непрочитанного на всех страницах панели: Echo (все события
-  истории) + HTTP-poll (`GET route.unread_count_uri` →
+  сообщения, но и сверяет показанные строки с базой по тексту и метаданным вложений, поэтому правка (в том числе правка
+  без нового текста), удаление и очистка без broadcast доезжают следующим тиком, а не только при выборе другого чата.
+  Глобальный счётчик непрочитанного на всех страницах панели: Echo (все события истории) + HTTP-poll
+  (`GET route.unread_count_uri` →
   `UnreadCountController`, JSON `{unread_count, latest_max_chat_id}`, интервал `notifications.poll_interval_seconds`).
   Echo подключается асинхронно: подписчик вешается на `EchoLoaded`, если `window.Echo` ещё не готов.
 - **Профиль пользователя**: `ChatProfileRefresher` троттлит по `profile.cache_ttl` и диспатчит

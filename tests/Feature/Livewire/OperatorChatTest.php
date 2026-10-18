@@ -273,6 +273,31 @@ class OperatorChatTest extends TestCase
             ->assertSet('messages', static fn (Collection $messages): bool => $messages->count() === 1 && $messages->contains('text', 'Новый текст'));
     }
 
+    /**
+     * Правка без нового текста (замена вложения) тоже доезжает следующим тиком:
+     * `refresh()` сверяет и метаданные вложений, а не только текст.
+     */
+    public function test_refresh_reloads_feed_when_message_attachment_changed_without_broadcast(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $message = $this->createMessageWithAttachment($chat, ['type' => 'file', 'name' => 'старый.pdf']);
+        $message->forceFill(['text' => 'Подпись'])->save();
+
+        $component = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        $message->forceFill(['attachment' => [['type' => 'file', 'name' => 'новый.pdf']]])->save();
+
+        $component->call('refresh')
+            ->assertSet('messages', static function (Collection $messages): bool {
+                $first = $messages->first();
+                $attachment = $first instanceof MaxMessage ? $first->attachmentAt(0) : null;
+
+                return $messages->count() === 1 && is_array($attachment) && ($attachment['name'] ?? null) === 'новый.pdf';
+            });
+    }
+
     public function test_refresh_clears_feed_when_history_cleared_without_broadcast(): void
     {
         $staff = $this->createStaff();
@@ -1131,6 +1156,141 @@ class OperatorChatTest extends TestCase
             ->assertSee('md:hidden', false)
             ->assertSee('wire:click="$set(\'activeChatId\', null)"', false)
             ->assertSee('К списку диалогов');
+    }
+
+    public function test_incoming_sticker_message_renders_image(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $message = $this->createMessageWithAttachment($chat, [
+            'type' => 'sticker',
+            'path' => 'chat-attachments/sticker.png',
+            'mime' => 'image/png',
+            'size' => 5,
+        ]);
+
+        $url = route('filament-max-chat.attachment', ['message' => $message, 'index' => 0]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee($url, false)
+            ->assertSee('<img', false);
+    }
+
+    public function test_incoming_video_message_renders_player(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $message = $this->createMessageWithAttachment($chat, [
+            'type' => 'video',
+            'path' => 'chat-attachments/clip.mp4',
+            'mime' => 'video/mp4',
+            'size' => 5,
+        ]);
+
+        $url = route('filament-max-chat.attachment', ['message' => $message, 'index' => 0]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('<video', false)
+            ->assertSee($url, false);
+    }
+
+    public function test_incoming_contact_message_renders_name_and_phone_link(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessageWithAttachment($chat, [
+            'type' => 'contact',
+            'name' => 'Мария Сидорова',
+            'phone' => '+79990001122',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('Мария Сидорова')
+            ->assertSee('tel:+79990001122', false);
+    }
+
+    public function test_incoming_location_message_renders_map_link(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessageWithAttachment($chat, [
+            'type' => 'location',
+            'latitude' => 55.7558,
+            'longitude' => 37.6173,
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('openstreetmap.org', false)
+            ->assertSee('55.7558');
+    }
+
+    public function test_incoming_share_message_renders_title_and_link(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessageWithAttachment($chat, [
+            'type' => 'share',
+            'url' => 'https://example.com/article',
+            'title' => 'Заголовок статьи',
+            'description' => 'Краткое описание',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('Заголовок статьи')
+            ->assertSee('Краткое описание')
+            ->assertSee('https://example.com/article', false);
+    }
+
+    public function test_incoming_share_message_does_not_render_unsafe_url(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessageWithAttachment($chat, [
+            'type' => 'share',
+            'url' => 'javascript:alert(1)',
+            'title' => 'Заголовок статьи',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('Заголовок статьи')
+            ->assertDontSee('javascript:alert(1)', false);
+    }
+
+    public function test_incoming_inline_keyboard_message_renders_button_chips(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessageWithAttachment($chat, [
+            'type' => 'inline_keyboard',
+            'buttons' => ['Подтвердить', 'Отменить'],
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('Подтвердить')
+            ->assertSee('Отменить');
+    }
+
+    /**
+     * @param  array<string, mixed>  $attachment
+     */
+    private function createMessageWithAttachment(MaxChat $chat, array $attachment): MaxMessage
+    {
+        return MaxMessage::query()->create([
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => 111,
+            'chat_id' => $chat->chat_id,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
+            'text' => null,
+            'attachment' => [$attachment],
+        ]);
     }
 
     private function createMessageFor(MaxChat $chat, int $userId, string $text): MaxMessage

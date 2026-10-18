@@ -26,8 +26,21 @@ return [
         'video' => '🎬 Видео',
         'audio' => '🎵 Аудио',
         'file' => '📄 Файл',
+        'sticker' => '🖼️ Стикер',
+        'contact' => '👤 Контакт',
+        'location' => '📍 Геолокация',
+        'share' => '🔗 Ссылка',
+        'buttons' => '⌨️ Кнопки',
         'image_unavailable' => '📷 Фото недоступно',
         'file_unavailable' => '📎 Файл недоступно',
+        'sticker_unavailable' => '🖼️ Стикер недоступен',
+    ],
+
+    'contact' => [
+        'fallback_name' => 'Контакт',
+    ],
+    'location' => [
+        'open' => 'Открыть на карте',
     ],
 
     'fallback_user' => 'Пользователь :id',

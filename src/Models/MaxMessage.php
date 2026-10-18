@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
+ * @phpstan-import-type StoredAttachment from \GeekCo\FilamentMaxChat\Services\MaxAttachmentStore
+ *
  * @property int $id
  * @property int $max_chat_id
  * @property int|null $user_id null у сообщений чата без собеседника в реестре
@@ -19,7 +21,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property MaxMessageDirection $direction
  * @property MaxMessageSender $sender_type
  * @property string|null $text
- * @property list<array{type: string, path?: string, name?: string, mime?: string, size?: int}>|null $attachment
+ * @property list<StoredAttachment>|null $attachment
  * @property int|null $operator_id
  * @property \Illuminate\Support\Carbon|null $read_at
  * @property \Illuminate\Support\Carbon|null $created_at
@@ -60,7 +62,7 @@ class MaxMessage extends Model
     /**
      * Attachment metadata stored for this message (always a list).
      *
-     * @return list<array{type: string, path?: string, name?: string, mime?: string, size?: int}>
+     * @return list<StoredAttachment>
      */
     public function attachments(): array
     {
@@ -74,7 +76,7 @@ class MaxMessage extends Model
     /**
      * Attachment metadata for a given index.
      *
-     * @return array{type: string, path?: string, name?: string, mime?: string, size?: int}|null
+     * @return StoredAttachment|null
      */
     public function attachmentAt(int $index = 0): ?array
     {
@@ -90,19 +92,28 @@ class MaxMessage extends Model
             return $this->text;
         }
 
-        $attachments = $this->attachments();
+        // Сырое значение колонки читается как mixed: метаданные могли быть
+        // записаны в обход стора, поэтому форма проверяется, а не берётся на
+        // веру из типа. Вложение без строкового `type` показывается как файл.
+        $raw = $this->getAttribute('attachment');
+        $attachments = is_array($raw) ? $raw : [];
 
         if ($attachments === []) {
             return __('filament-max-chat::chat.preview.file');
         }
 
-        $first = $attachments[0];
-        $type = $first['type'];
+        $first = $attachments[0] ?? null;
+        $type = is_array($first) && is_string($first['type'] ?? null) ? $first['type'] : 'file';
 
         $label = match ($type) {
             'image' => __('filament-max-chat::chat.preview.image'),
             'video' => __('filament-max-chat::chat.preview.video'),
             'audio' => __('filament-max-chat::chat.preview.audio'),
+            'sticker' => __('filament-max-chat::chat.preview.sticker'),
+            'contact' => __('filament-max-chat::chat.preview.contact'),
+            'location' => __('filament-max-chat::chat.preview.location'),
+            'share' => __('filament-max-chat::chat.preview.share'),
+            'inline_keyboard' => __('filament-max-chat::chat.preview.buttons'),
             default => __('filament-max-chat::chat.preview.file'),
         };
 

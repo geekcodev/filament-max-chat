@@ -14,6 +14,9 @@ use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
+/**
+ * @phpstan-import-type StoredAttachment from \GeekCo\FilamentMaxChat\Services\MaxAttachmentStore
+ */
 class MaxMessageTest extends TestCase
 {
     use MakesChats;
@@ -54,6 +57,37 @@ class MaxMessageTest extends TestCase
         $this->assertNotEmpty($message->previewText());
     }
 
+    public function test_preview_text_with_non_media_attachments_maps_to_label(): void
+    {
+        $chat = $this->makeChatWithUser(223, 112);
+
+        $cases = [
+            'sticker' => 'sticker',
+            'contact' => 'contact',
+            'location' => 'location',
+            'share' => 'share',
+            'inline_keyboard' => 'buttons',
+        ];
+
+        foreach ($cases as $type => $key) {
+            $message = MaxMessage::query()->create([
+                'max_chat_id' => $chat->chat_id,
+                'user_id' => 112,
+                'chat_id' => 223,
+                'direction' => MaxMessageDirection::In,
+                'sender_type' => MaxMessageSender::User,
+                'text' => null,
+                'attachment' => [['type' => $type]],
+            ]);
+
+            $this->assertSame(
+                __('filament-max-chat::chat.preview.'.$key),
+                $message->previewText(),
+                'preview for '.$type,
+            );
+        }
+    }
+
     public function test_preview_text_with_multiple_attachments_appends_count(): void
     {
         $message = $this->createMessage(null, [
@@ -73,6 +107,42 @@ class MaxMessageTest extends TestCase
         $message = $this->createMessage('');
 
         $this->assertNotEmpty($message->previewText());
+    }
+
+    public function test_preview_text_with_attachment_without_type_falls_back_to_file(): void
+    {
+        // Метаданные записаны в обход стора: вложение без ключа `type`.
+        $chat = $this->makeChatWithUser(222, 111);
+
+        $message = MaxMessage::query()->create([
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => 111,
+            'chat_id' => 222,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
+            'text' => null,
+            'attachment' => [['name' => 'photo.png', 'path' => 'x']],
+        ]);
+
+        $this->assertSame(__('filament-max-chat::chat.preview.file'), $message->previewText());
+    }
+
+    public function test_preview_text_with_non_list_attachment_does_not_fail(): void
+    {
+        // Метаданные записаны в обход стора: не список, а карта по ключам.
+        $chat = $this->makeChatWithUser(222, 111);
+
+        $message = MaxMessage::query()->create([
+            'max_chat_id' => $chat->chat_id,
+            'user_id' => 111,
+            'chat_id' => 222,
+            'direction' => MaxMessageDirection::In,
+            'sender_type' => MaxMessageSender::User,
+            'text' => null,
+            'attachment' => ['first' => ['type' => 'image']],
+        ]);
+
+        $this->assertSame(__('filament-max-chat::chat.preview.file'), $message->previewText());
     }
 
     public function test_attachments_return_list_as_is(): void
@@ -183,7 +253,7 @@ class MaxMessageTest extends TestCase
     }
 
     /**
-     * @param  array{type: string, path?: string, name?: string, mime?: string, size?: int}|list<array{type: string, path?: string, name?: string, mime?: string, size?: int}>|null  $attachment
+     * @param  StoredAttachment|list<StoredAttachment>|null  $attachment
      */
     private function createMessage(?string $text, ?array $attachment = null): MaxMessage
     {

@@ -87,7 +87,7 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
 
     private function registerIncomingUpdateListener(): void
     {
-        if (config()->boolean('filament-max-chat.updates.auto_handle', true) === false) {
+        if (! config()->boolean('filament-max-chat.updates.auto_handle', true)) {
             return;
         }
 

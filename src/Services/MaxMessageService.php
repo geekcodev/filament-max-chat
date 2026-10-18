@@ -23,6 +23,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * @phpstan-import-type StoredAttachment from \GeekCo\FilamentMaxChat\Services\MaxAttachmentStore
+ */
 class MaxMessageService
 {
     public function __construct(
@@ -302,7 +305,7 @@ class MaxMessageService
     /**
      * @param int|null $userId Собеседник; null для чата без собеседника в реестре
      *                         (канал или группа, чей состав ещё не синхронизирован)
-     * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
+     * @param list<StoredAttachment> $attachments
      */
     public function storeOutgoing(
         ?int $userId,
@@ -672,7 +675,7 @@ class MaxMessageService
     }
 
     /**
-     * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
+     * @param list<StoredAttachment> $attachments
      */
     private function createMessage(
         MaxChat $maxChat,

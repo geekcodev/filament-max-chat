@@ -26,8 +26,21 @@ return [
         'video' => '🎬 Video',
         'audio' => '🎵 Audio',
         'file' => '📄 File',
+        'sticker' => '🖼️ Sticker',
+        'contact' => '👤 Contact',
+        'location' => '📍 Location',
+        'share' => '🔗 Link',
+        'buttons' => '⌨️ Buttons',
         'image_unavailable' => '📷 Photo unavailable',
         'file_unavailable' => '📎 File unavailable',
+        'sticker_unavailable' => '🖼️ Sticker unavailable',
+    ],
+
+    'contact' => [
+        'fallback_name' => 'Contact',
+    ],
+    'location' => [
+        'open' => 'Open in map',
     ],
 
     'fallback_user' => 'User :id',

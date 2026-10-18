@@ -21,6 +21,7 @@ use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser as RegistryMaxUser;
 use GeekCo\MaxPhpClient\Dto\Attachment;
+use GeekCo\MaxPhpClient\Dto\ContactAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\ImageAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\Message;
 use GeekCo\MaxPhpClient\Dto\MessageBody;
@@ -615,6 +616,27 @@ class MaxMessageServiceTest extends TestCase
 
         $this->assertNotNull($message);
         $this->assertSame([], $message->attachment);
+    }
+
+    public function test_store_incoming_stores_contact_attachment_metadata(): void
+    {
+        Storage::fake('local');
+
+        $update = $this->incomingUpdateWithAttachments([
+            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+                hash: 'abc',
+                vcfInfo: "BEGIN:VCARD\nFN:Мария Сидорова\nTEL;TYPE=CELL:+79990001122\nEND:VCARD",
+            )),
+        ]);
+
+        $message = app(MaxMessageService::class)->storeIncoming($update);
+
+        $this->assertNotNull($message);
+        $attachments = $message->attachments();
+        $this->assertCount(1, $attachments);
+        $this->assertSame('contact', $attachments[0]['type']);
+        $this->assertSame('Мария Сидорова', $attachments[0]['name'] ?? null);
+        $this->assertSame('+79990001122', $attachments[0]['phone'] ?? null);
     }
 
     /**
