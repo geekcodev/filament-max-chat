@@ -6,7 +6,11 @@ namespace GeekCo\FilamentMaxChat\Services;
 
 use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
 use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\FilamentMaxChat\Events\MaxChatRemoved;
 use GeekCo\FilamentMaxChat\Events\MaxMessageCreated;
+use GeekCo\FilamentMaxChat\Events\MaxMessageDeleted;
+use GeekCo\FilamentMaxChat\Events\MaxMessageUpdated;
+use GeekCo\FilamentMaxChat\Events\MaxMessagesCleared;
 use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
@@ -19,6 +23,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * @phpstan-import-type StoredAttachment from \GeekCo\FilamentMaxChat\Services\MaxAttachmentStore
+ */
 class MaxMessageService
 {
     public function __construct(
@@ -47,6 +54,16 @@ class MaxMessageService
             ]);
         }
 
+        $messageId = $update->messageId ?? $update->message?->body?->mid;
+
+        // Ранний выход до скачивания медиа: повторная доставка апдейта не должна
+        // заново сохранять вложения во приватный диск (иначе файлы-сироты).
+        $existing = $this->findStoredMessage($chatId, $messageId);
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
         $maxChat = $this->upsertChat($user?->userId, $chatId, $user);
 
         $text = $update->message?->body?->text;
@@ -58,7 +75,7 @@ class MaxMessageService
             direction: MaxMessageDirection::In,
             senderType: MaxMessageSender::User,
             text: $text,
-            messageId: $update->messageId ?? $update->message?->body?->mid,
+            messageId: $messageId,
             attachments: $this->attachments->storeFromIncoming($update->message?->body?->attachments),
         );
     }
@@ -67,8 +84,10 @@ class MaxMessageService
      * Правка сообщения в MAX (`message_edited`): переписывает текст уже
      * сохранённого сообщения по `message_id`. Неизвестное сообщение не создаётся
      * — апдейт без тела (нет нового текста) тоже ничего не трогает, чтобы пустой
-     * `message_edited` не вытер переписку. Обновление видно в ленте при
-     * следующем `wire:poll`, отдельного broadcast-события на правку нет.
+     * `message_edited` не вытер переписку. Идентификатор берётся из
+     * `message.body.mid`: в `message_edited` верхнего `message_id` нет. После
+     * сохранения летит broadcast-событие `chat-message.updated`, чтобы открытая
+     * лента поправила строку не дожидаясь `wire:poll`.
      */
     public function applyIncomingEdit(Update $update): ?MaxMessage
     {
@@ -87,7 +106,11 @@ class MaxMessageService
 
         $message->forceFill(['text' => $text])->save();
 
-        return $message->refresh();
+        $message = $message->refresh();
+
+        MaxMessageUpdated::dispatch($message);
+
+        return $message;
     }
 
     /**
@@ -95,6 +118,8 @@ class MaxMessageService
      * вместе с файлом вложения на приватном диске — иначе файл остался бы
      * сиротой, а удалить его уже никто не сможет. Отправку в MAX не трогаем:
      * сообщение удалено там, локальная история просто приводится в соответствие.
+     * После удаления летит broadcast-событие `chat-message.deleted` — модель к
+     * этому моменту уже удалена, поэтому событие несёт её идентификаторы.
      */
     public function applyIncomingRemoval(Update $update): bool
     {
@@ -106,7 +131,136 @@ class MaxMessageService
 
         $this->attachments->deleteStored($message->attachment);
 
-        return (bool) $message->delete();
+        $chatId = $message->max_chat_id;
+        $messageId = $message->message_id;
+        $rowId = $message->id;
+
+        $deleted = (bool) $message->delete();
+
+        if ($deleted) {
+            MaxMessageDeleted::dispatch($chatId, $messageId, $rowId);
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Очистка истории диалога по апдейту MAX (`dialog_cleared`). Переписка уже
+     * очищена на стороне MAX, поэтому локальные строки и файлы вложений удаляются
+     * без вызова API. Через {@see self::clearHistory()} делать нельзя: тот метод
+     * перед удалением просит MAX удалить каждое сообщение — здесь это была бы
+     * повторная рассылка удалений по уже очищенному чату.
+     *
+     * После очистки уходит broadcast-событие `chat-message.cleared`, чтобы открытая
+     * лента перечиталась целиком и глобальный счётчик непрочитанного обновился.
+     */
+    public function applyIncomingClear(Update $update): int
+    {
+        $chatId = $update->chatId;
+
+        if ($chatId === null) {
+            $this->logger->log('warning', 'Incoming MAX clear without chat skipped.', [
+                'update_type' => $update->updateType->value,
+            ]);
+
+            return 0;
+        }
+
+        $query = MaxMessage::query()->where('max_chat_id', $chatId);
+
+        $deleted = (clone $query)->count();
+
+        if ($deleted > 0) {
+            // Чанками, а не `->get()`: у долгой переписки строки могут не поместиться
+            // в память, а читать нужно только колонку вложения.
+            $query->select('id', 'attachment')->chunkById(200, function (Collection $messages): void {
+                foreach ($messages as $message) {
+                    $this->attachments->deleteStored($message->attachment);
+                }
+            });
+        }
+
+        MaxMessage::query()
+            ->where('max_chat_id', $chatId)
+            ->delete();
+
+        if ($deleted > 0) {
+            MaxMessagesCleared::dispatch($chatId);
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Диалог удалён в MAX (`dialog_removed`): чат помечается статусом Removed и
+     * исчезает из списка оператора. История сообщений и файлы вложений
+     * сохраняются — то же поведение, что у кнопки удаления чата в интерфейсе.
+     * После пометки уходит broadcast-событие `chat-removed`.
+     *
+     * `dialog_removed` приходит и при остановке бота (`bot_stopped`, см. спеку MAX),
+     * а статус в этом случае принадлежит слушателю laravel-max-client (Stopped).
+     * Поэтому неактивный чат не понижается до Removed: иначе итоговый статус
+     * зависел бы от порядка слушателей `MaxUpdateReceived`. Чат уже скрыт
+     * (список показывает только Active), так что оператор разницы не видит.
+     */
+    public function applyIncomingChatRemoval(Update $update): bool
+    {
+        $chatId = $update->chatId;
+
+        if ($chatId === null) {
+            $this->logger->log('warning', 'Incoming MAX chat removal without chat skipped.', [
+                'update_type' => $update->updateType->value,
+            ]);
+
+            return false;
+        }
+
+        $model = $this->chatModel();
+
+        /** @var MaxChat|null $existing */
+        $existing = $model::query()->find($chatId);
+
+        if ($existing === null || $existing->status !== MaxChatStatus::Active) {
+            return false;
+        }
+
+        if (! $this->removeChat($chatId)) {
+            return false;
+        }
+
+        MaxChatRemoved::dispatch($chatId);
+
+        return true;
+    }
+
+    /**
+     * Смена названия чата (`chat_title_changed`): значение уже есть в апдейте, так
+     * что запрос к API не нужен. Название обновляется только у уже известного чата
+     * — так же поступает слушатель laravel-max-client, иначе пустой список оператора
+     * заполнился бы чатами без сообщений. Пустой title игнорируется, чтобы не
+     * затереть уже сохранённое название.
+     */
+    public function applyIncomingTitle(Update $update): ?MaxChat
+    {
+        $chatId = $update->chatId;
+        $title = $update->title === null ? '' : trim($update->title);
+
+        if ($chatId === null || $title === '') {
+            return null;
+        }
+
+        $model = $this->chatModel();
+
+        /** @var MaxChat|null $chat */
+        $chat = $model::query()->find($chatId);
+
+        if ($chat === null) {
+            return null;
+        }
+
+        $chat->forceFill(['title' => $title])->save();
+
+        return $chat;
     }
 
     /**
@@ -151,7 +305,7 @@ class MaxMessageService
     /**
      * @param int|null $userId Собеседник; null для чата без собеседника в реестре
      *                         (канал или группа, чей состав ещё не синхронизирован)
-     * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
+     * @param list<StoredAttachment> $attachments
      */
     public function storeOutgoing(
         ?int $userId,
@@ -216,17 +370,21 @@ class MaxMessageService
         // Связи с пользователями ищем LEFT JOIN, а не JOIN: у канала и группы
         // состав может быть ещё не синхронизирован, и такой чат обязан находиться
         // по тексту сообщений, а не выпадать из выдачи.
+        //
+        // Порядок задаётся финальным запросом ниже; здесь его нет намеренно:
+        // SELECT DISTINCT ... ORDER BY колонки, которой нет в select list,
+        // PostgreSQL отвергает (SQLSTATE 42P10), а сортировка chat_id всё равно
+        // была бы отброшена повторной выборкой моделей.
         $chatIds = DB::table('max_chats')
             ->leftJoin('max_chat_users', 'max_chat_users.chat_id', '=', 'max_chats.chat_id')
             ->leftJoin('max_users', 'max_users.user_id', '=', 'max_chat_users.user_id')
             ->leftJoin('max_chat_messages', 'max_chat_messages.max_chat_id', '=', 'max_chats.chat_id')
             ->where('max_chats.status', MaxChatStatus::Active)
             ->where(function (\Illuminate\Database\Query\Builder $query) use ($like): void {
-                $query->whereRaw('max_users.first_name LIKE ? ESCAPE \'!\'', [$like])
-                    ->orWhereRaw('max_users.last_name LIKE ? ESCAPE \'!\'', [$like])
-                    ->orWhereRaw('max_chat_messages.text LIKE ? ESCAPE \'!\'', [$like]);
+                $query->whereRaw('lower(max_users.first_name) LIKE lower(?) ESCAPE \'!\'', [$like])
+                    ->orWhereRaw('lower(max_users.last_name) LIKE lower(?) ESCAPE \'!\'', [$like])
+                    ->orWhereRaw('lower(max_chat_messages.text) LIKE lower(?) ESCAPE \'!\'', [$like]);
             })
-            ->orderByDesc('max_chats.last_activity_at')
             ->distinct()
             ->pluck('max_chats.chat_id');
 
@@ -400,7 +558,10 @@ class MaxMessageService
      */
     private function findByMaxMessageId(Update $update): ?MaxMessage
     {
-        $messageId = $update->messageId;
+        // `message_removed` присылает message_id на верхнем уровне, а
+        // `message_edited` — только внутри message.body.mid (верхнего
+        // message_id в спеке нет), поэтому идентификатор берём с фолбэком.
+        $messageId = $update->messageId ?? $update->message?->body?->mid;
         $chatId = $update->chatId ?? $update->message?->recipient->chatId;
 
         if ($messageId === null || $messageId === '' || $chatId === null) {
@@ -497,7 +658,24 @@ class MaxMessageService
     }
 
     /**
-     * @param list<array{type: string, path?: string, name?: string, mime?: string, size?: int}> $attachments
+     * Локальное сообщение по паре «chat_id + message_id». Пустой `message_id`
+     * дедупликации не подлежит (сообщения без идентификатора MAX приходят редко,
+     * и они не должны схлопываться в одну строку).
+     */
+    private function findStoredMessage(int $chatId, ?string $messageId): ?MaxMessage
+    {
+        if ($messageId === null || $messageId === '') {
+            return null;
+        }
+
+        return MaxMessage::query()
+            ->where('max_chat_id', $chatId)
+            ->where('message_id', $messageId)
+            ->first();
+    }
+
+    /**
+     * @param list<StoredAttachment> $attachments
      */
     private function createMessage(
         MaxChat $maxChat,
@@ -509,6 +687,18 @@ class MaxMessageService
         ?string $messageId = null,
         array $attachments = [],
     ): MaxMessage {
+        // MAX доставляет апдейты повторно и дублирует своё же событие на
+        // исходящее сообщение бота, а идентификатор сообщения уникален внутри
+        // чата. Поэтому уже сохранённое сообщение с той же парой
+        // «chat_id + message_id» не создаём второй раз: иначе в ленте появился
+        // бы дубль, а автообработка плагина поверх слушателя приложения
+        // удвоила бы входящие.
+        $existing = $this->findStoredMessage($maxChat->chat_id, $messageId);
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
         $maxChat->forceFill(['last_activity_at' => now()])->save();
 
         $message = $maxChat->messages()->create([

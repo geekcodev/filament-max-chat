@@ -18,6 +18,16 @@ abstract class TestCase extends Orchestra
     {
         parent::setUp();
 
+        $db = app('db')->connection();
+        if ($db->getDriverName() === 'sqlite') {
+            // SQLite-функция lower() понижает только ASCII, поэтому регистронезависимый
+            // поиск на кириллице в тестах не работал бы. Подменяем её на mb_strtolower,
+            // повторяя Unicode-aware поведение lower() в MySQL и PostgreSQL.
+            $db->getPdo()->sqliteCreateFunction('lower', static function (?string $value): string {
+                return mb_strtolower((string) $value, 'UTF-8');
+            });
+        }
+
         $this->loadMigrationsFrom(__DIR__.'/../vendor/geekcodev/laravel-max-client/database/migrations');
         $this->loadMigrationsFrom(__DIR__.'/Fixtures/Migrations');
 

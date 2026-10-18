@@ -7,9 +7,17 @@ namespace GeekCo\FilamentMaxChat\Tests\Unit\Services;
 use GeekCo\FilamentMaxChat\Services\MaxAttachmentStore;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\MaxPhpClient\Dto\Attachment;
+use GeekCo\MaxPhpClient\Dto\ContactAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\FileAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\ImageAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\InlineKeyboardAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\InlineKeyboardButton;
+use GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow;
+use GeekCo\MaxPhpClient\Dto\LocationAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\VideoAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\VideoUrls;
 use GeekCo\MaxPhpClient\Enum\AttachmentType;
+use GeekCo\MaxPhpClient\Enum\ButtonType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -290,6 +298,346 @@ class MaxAttachmentStoreTest extends TestCase
         $this->assertSame('file', $meta['type']);
         $this->assertArrayHasKey('name', $meta);
         $this->assertSame('data.csv', $meta['name']);
+    }
+
+    public function test_store_from_incoming_sticker_downloads_image_and_keeps_code(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'cdn.max.ru/*' => Http::response('webp-bytes', 200, ['Content-Type' => 'image/webp']),
+        ]);
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Sticker, payload: [
+                'url' => 'https://cdn.max.ru/stickers/s1.webp',
+                'code' => 's1',
+                'width' => 512,
+                'height' => 512,
+            ]),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame('sticker', $meta['type']);
+        $this->assertSame('s1', $meta['code'] ?? null);
+        $this->assertArrayHasKey('path', $meta);
+        Storage::disk('local')->assertExists($meta['path']);
+    }
+
+    public function test_store_from_incoming_sticker_without_url_keeps_code_only(): void
+    {
+        Storage::fake('local');
+        Http::fake();
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Sticker, payload: ['code' => 's2']),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame('sticker', $meta['type']);
+        $this->assertSame('s2', $meta['code'] ?? null);
+        $this->assertArrayNotHasKey('path', $meta);
+        $this->assertSame([], Http::recorded()->all());
+    }
+
+    public function test_store_from_incoming_sticker_with_non_array_payload_stores_type_only(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::Sticker,
+                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/nope.webp'),
+            ),
+        ]);
+
+        $this->assertSame([['type' => 'sticker']], $meta);
+    }
+
+    public function test_store_from_incoming_contact_uses_max_info_name_and_vcf_phone(): void
+    {
+        $vcf = "BEGIN:VCARD\nVERSION:3.0\nFN:Мария Сидорова\nTEL;TYPE=CELL:+79990001122\nEND:VCARD";
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+                hash: 'abc',
+                vcfInfo: $vcf,
+                maxInfo: ['name' => 'Мария Сидорова'],
+            )),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame('contact', $meta['type']);
+        $this->assertSame('Мария Сидорова', $meta['name'] ?? null);
+        $this->assertSame('+79990001122', $meta['phone'] ?? null);
+        $this->assertArrayNotHasKey('path', $meta);
+    }
+
+    public function test_store_from_incoming_contact_falls_back_to_vcard_escaped_lines(): void
+    {
+        $vcf = 'BEGIN:VCARD\\nVERSION:3.0\\nFN:Пётр Иванов\\nTEL;TYPE=CELL:+79995556677\\nEND:VCARD';
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+                hash: 'abc',
+                vcfInfo: $vcf,
+            )),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame('contact', $meta['type']);
+        $this->assertSame('Пётр Иванов', $meta['name'] ?? null);
+        $this->assertSame('+79995556677', $meta['phone'] ?? null);
+    }
+
+    public function test_store_from_incoming_contact_builds_name_from_first_and_last_name(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+                hash: 'abc',
+                maxInfo: ['first_name' => 'Иван', 'last_name' => 'Петров'],
+            )),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $this->assertSame('Иван Петров', $meta[0]['name'] ?? null);
+        $this->assertArrayNotHasKey('phone', $meta[0]);
+    }
+
+    public function test_store_from_incoming_contact_without_data_stores_type_only(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Contact, payload: []),
+        ]);
+
+        $this->assertSame([['type' => 'contact']], $meta);
+    }
+
+    public function test_store_from_incoming_contact_with_empty_payload_object_stores_type_only(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(hash: 'abc')),
+        ]);
+
+        $this->assertSame([['type' => 'contact']], $meta);
+    }
+
+    public function test_store_from_incoming_contact_prefers_plain_phone_over_vcf(): void
+    {
+        $vcf = "BEGIN:VCARD\nFN:Мария\nTEL;TYPE=CELL:+70000000000\nEND:VCARD";
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+                hash: 'abc',
+                vcfInfo: $vcf,
+                vcfPhone: '+79990001122',
+            )),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $this->assertSame('Мария', $meta[0]['name'] ?? null);
+        $this->assertSame('+79990001122', $meta[0]['phone'] ?? null);
+    }
+
+    public function test_store_from_incoming_contact_with_phone_only_vcard_has_no_name(): void
+    {
+        $vcf = "BEGIN:VCARD\nTEL;TYPE=CELL:+79995556677\nEND:VCARD";
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+                hash: 'abc',
+                vcfInfo: $vcf,
+            )),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $this->assertArrayNotHasKey('name', $meta[0]);
+        $this->assertSame('+79995556677', $meta[0]['phone'] ?? null);
+    }
+
+    public function test_store_from_incoming_location_uses_top_level_coordinates(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Location, latitude: 55.7558, longitude: 37.6173),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame('location', $meta['type']);
+        $this->assertSame(55.7558, $meta['latitude'] ?? null);
+        $this->assertSame(37.6173, $meta['longitude'] ?? null);
+    }
+
+    public function test_store_from_incoming_location_falls_back_to_nested_payload(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Location, payload: new LocationAttachmentPayload(
+                latitude: 59.93,
+                longitude: 30.33,
+            )),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame(59.93, $meta['latitude'] ?? null);
+        $this->assertSame(30.33, $meta['longitude'] ?? null);
+    }
+
+    public function test_store_from_incoming_location_without_coordinates_stores_type_only(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Location),
+        ]);
+
+        $this->assertSame([['type' => 'location']], $meta);
+    }
+
+    public function test_store_from_incoming_share_stores_link_metadata(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Share, payload: [
+                'url' => 'https://example.com/article',
+                'title' => 'Заголовок',
+                'description' => 'Описание',
+                'image_url' => 'https://example.com/cover.png',
+            ]),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame('share', $meta['type']);
+        $this->assertSame('https://example.com/article', $meta['url'] ?? null);
+        $this->assertSame('Заголовок', $meta['title'] ?? null);
+        $this->assertSame('Описание', $meta['description'] ?? null);
+        $this->assertArrayNotHasKey('path', $meta);
+        $this->assertArrayNotHasKey('image_url', $meta);
+    }
+
+    public function test_store_from_incoming_share_drops_invalid_urls(): void
+    {
+        foreach ([123, '', 'javascript:alert(1)', '/relative'] as $invalid) {
+            $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+                new Attachment(type: AttachmentType::Share, payload: ['url' => $invalid]),
+            ]);
+
+            $this->assertCount(1, $meta);
+            $this->assertSame('share', $meta[0]['type']);
+            $this->assertArrayNotHasKey('url', $meta[0]);
+        }
+    }
+
+    public function test_store_from_incoming_share_truncates_oversized_and_ignores_non_string_fields(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Share, payload: [
+                'url' => 'https://example.com',
+                'title' => 123,
+                'description' => str_repeat('d', 5000),
+            ]),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertArrayNotHasKey('title', $meta);
+        $this->assertSame(2000, mb_strlen($meta['description'] ?? ''));
+    }
+
+    public function test_store_from_incoming_share_with_non_array_payload_stores_type_only(): void
+    {
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::Share,
+                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/nope.png'),
+            ),
+        ]);
+
+        $this->assertSame([['type' => 'share']], $meta);
+    }
+
+    public function test_store_from_incoming_inline_keyboard_stores_button_texts(): void
+    {
+        $payload = new InlineKeyboardAttachmentPayload(rows: [
+            new InlineKeyboardButtonRow(buttons: [
+                new InlineKeyboardButton(type: ButtonType::Callback, text: 'Да'),
+                new InlineKeyboardButton(type: ButtonType::Callback, text: 'Нет'),
+            ]),
+            new InlineKeyboardButtonRow(buttons: [
+                new InlineKeyboardButton(type: ButtonType::Link, text: 'Сайт', url: 'https://example.com'),
+            ]),
+        ]);
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::InlineKeyboard, payload: $payload),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame('inline_keyboard', $meta['type']);
+        $this->assertSame(['Да', 'Нет', 'Сайт'], $meta['buttons'] ?? null);
+    }
+
+    public function test_store_from_incoming_inline_keyboard_without_buttons_is_skipped(): void
+    {
+        $this->assertSame([], app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::InlineKeyboard,
+                payload: new InlineKeyboardAttachmentPayload(rows: []),
+            ),
+        ]));
+    }
+
+    public function test_store_from_incoming_video_downloads_mp4(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'cdn.max.ru/*' => Http::response('mp4-bytes', 200, ['Content-Type' => 'video/mp4']),
+        ]);
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(type: AttachmentType::Video, payload: new VideoAttachmentPayload(
+                url: new VideoUrls(mp4: 'https://cdn.max.ru/clip.mp4'),
+            )),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertSame('video', $meta['type']);
+        $this->assertArrayHasKey('path', $meta);
+        $this->assertStringEndsWith('.mp4', $meta['path']);
+        Storage::disk('local')->assertExists($meta['path']);
+    }
+
+    public function test_store_from_incoming_video_without_mp4_url_stores_type_only(): void
+    {
+        Storage::fake('local');
+        Http::fake();
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::Video,
+                payload: new VideoAttachmentPayload(url: new VideoUrls(preview: 'https://cdn.max.ru/p.jpg')),
+            ),
+        ]);
+
+        $this->assertSame([['type' => 'video']], $meta);
+        $this->assertSame([], Http::recorded()->all());
+    }
+
+    public function test_download_rejects_non_http_url(): void
+    {
+        Storage::fake('local');
+        Http::fake();
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::Image,
+                payload: new ImageAttachmentPayload(url: 'file:///etc/passwd'),
+            ),
+        ]);
+
+        $this->assertSame([['type' => 'image']], $meta);
+        $this->assertSame([], Http::recorded()->all());
     }
 
     public function test_download_returns_type_only_on_null_url(): void

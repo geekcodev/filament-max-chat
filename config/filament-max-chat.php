@@ -35,6 +35,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Автообработка апдейтов MAX
+    |--------------------------------------------------------------------------
+    |
+    | Когда включено, плагин сам регистрирует слушатель события
+    | MaxUpdateReceived (laravel-max-client) и ведёт историю переписки:
+    | message_created → storeIncoming, message_edited → applyIncomingEdit,
+    | message_removed → applyIncomingRemoval, dialog_cleared →
+    | applyIncomingClear, dialog_removed → applyIncomingChatRemoval,
+    | chat_title_changed → applyIncomingTitle. Хост-приложению остаётся только
+    | бизнес-логика апдейтов. Отключайте, если историю ведёт свой слушатель
+    | и вы не хотите дублирования (повторное сохранение идемпотентно, но
+    | лишний вызов всё равно не нужен).
+    |
+    */
+
+    'updates' => [
+        'auto_handle' => filter_var(env('FILAMENT_MAX_CHAT_UPDATES_AUTO_HANDLE', true), FILTER_VALIDATE_BOOLEAN),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Модели
     |--------------------------------------------------------------------------
     |

@@ -209,8 +209,9 @@
                                 </button>
                             @endif
                             @foreach ($message->attachments() as $index => $attachment)
+                                @php($type = $attachment['type'] ?? '')
                                 @php($attachmentUrl = filled($attachment['path'] ?? null) ? route('filament-max-chat.attachment', ['message' => $message, 'index' => $index]) : null)
-                                @if (($attachment['type'] ?? '') === 'image')
+                                @if ($type === 'image')
                                     @if ($attachmentUrl !== null)
                                         <a href="{{ $attachmentUrl }}" target="_blank" rel="noopener">
                                             <img src="{{ $attachmentUrl }}" alt="{{ $attachment['name'] ?? '' }}" class="mb-1 max-h-64 w-auto rounded-lg">
@@ -218,18 +219,73 @@
                                     @else
                                         <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.image_unavailable') }}</p>
                                     @endif
-                                @elseif (($attachment['type'] ?? '') === 'video')
+                                @elseif ($type === 'sticker')
+                                    @if ($attachmentUrl !== null)
+                                        <img src="{{ $attachmentUrl }}" alt="" class="mb-1 max-h-32 w-auto">
+                                    @else
+                                        <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.sticker_unavailable') }}</p>
+                                    @endif
+                                @elseif ($type === 'video')
                                     @if ($attachmentUrl !== null)
                                         <video controls class="mb-1 max-h-64 w-auto rounded-lg" src="{{ $attachmentUrl }}"></video>
                                     @else
                                         <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.video') }}</p>
                                     @endif
-                                @elseif (($attachment['type'] ?? '') === 'audio')
+                                @elseif ($type === 'audio')
                                     @if ($attachmentUrl !== null)
                                         <audio controls class="mb-1 w-56" src="{{ $attachmentUrl }}"></audio>
                                     @else
                                         <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.audio') }}</p>
                                     @endif
+                                @elseif ($type === 'contact')
+                                    @php($contactName = filled($attachment['name'] ?? null) ? $attachment['name'] : __('filament-max-chat::chat.contact.fallback_name'))
+                                    @php($contactPhone = $attachment['phone'] ?? null)
+                                    <div class="mb-1 flex items-center gap-2 rounded-md bg-black/5 px-2 py-1.5 dark:bg-white/10">
+                                        <x-heroicon-o-user class="h-5 w-5 shrink-0 opacity-70" />
+                                        <div class="min-w-0">
+                                            <p class="truncate font-medium">{{ $contactName }}</p>
+                                            @if (filled($contactPhone))
+                                                <a href="tel:{{ $contactPhone }}" class="block truncate underline opacity-90 hover:opacity-100">{{ $contactPhone }}</a>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @elseif ($type === 'location')
+                                    @php($latitude = $attachment['latitude'] ?? null)
+                                    @php($longitude = $attachment['longitude'] ?? null)
+                                    @if ($latitude !== null && $longitude !== null)
+                                        @php($mapUrl = 'https://www.openstreetmap.org/?mlat='.$latitude.'&mlon='.$longitude.'#map=16/'.$latitude.'/'.$longitude)
+                                        <a href="{{ $mapUrl }}" target="_blank" rel="noopener" class="mb-1 inline-flex items-center gap-1 underline opacity-90 hover:opacity-100">
+                                            <x-heroicon-o-map-pin class="h-4 w-4 shrink-0" />
+                                            {{ __('filament-max-chat::chat.location.open') }} ({{ $latitude }}, {{ $longitude }})
+                                        </a>
+                                    @else
+                                        <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.location') }}</p>
+                                    @endif
+                                @elseif ($type === 'share')
+                                    @php($shareUrl = \GeekCo\FilamentMaxChat\Services\MaxAttachmentStore::httpUrl($attachment['url'] ?? null))
+                                    @php($shareTitle = $attachment['title'] ?? null)
+                                    @php($shareDescription = $attachment['description'] ?? null)
+                                    <div class="mb-1 max-w-full rounded-md bg-black/5 px-2 py-1.5 dark:bg-white/10">
+                                        @if (filled($shareUrl))
+                                            <a href="{{ $shareUrl }}" target="_blank" rel="noopener" class="block truncate font-medium underline opacity-90 hover:opacity-100">{{ filled($shareTitle) ? $shareTitle : $shareUrl }}</a>
+                                        @elseif (filled($shareTitle))
+                                            <p class="truncate font-medium">{{ $shareTitle }}</p>
+                                        @else
+                                            <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.share') }}</p>
+                                        @endif
+                                        @if (filled($shareDescription))
+                                            <p class="mt-0.5 text-xs break-words opacity-80">{{ $shareDescription }}</p>
+                                        @endif
+                                        @if (filled($shareUrl) && filled($shareTitle))
+                                            <p class="mt-0.5 truncate text-xs opacity-60">{{ $shareUrl }}</p>
+                                        @endif
+                                    </div>
+                                @elseif ($type === 'inline_keyboard')
+                                    <div class="mb-1 flex flex-wrap gap-1">
+                                        @foreach (($attachment['buttons'] ?? []) as $buttonLabel)
+                                            <span class="rounded-md border border-gray-300 px-2 py-0.5 text-xs opacity-80 dark:border-white/20">{{ $buttonLabel }}</span>
+                                        @endforeach
+                                    </div>
                                 @elseif ($attachmentUrl !== null)
                                     <a href="{{ $attachmentUrl }}" download="{{ $attachment['name'] ?? '' }}" class="inline-flex items-center gap-1 underline opacity-90 hover:opacity-100">
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline h-4 w-4">
@@ -419,6 +475,18 @@
                 window.Echo.private(channel)
                     .listen('.chat-message.created', () => {
                         Livewire.dispatch('chat-refresh');
+                    })
+                    .listen('.chat-message.updated', () => {
+                        Livewire.dispatch('chat-reload');
+                    })
+                    .listen('.chat-message.deleted', () => {
+                        Livewire.dispatch('chat-reload');
+                    })
+                    .listen('.chat-message.cleared', () => {
+                        Livewire.dispatch('chat-reload');
+                    })
+                    .listen('.chat-removed', (event) => {
+                        Livewire.dispatch('chat-removed', { chatId: event.max_chat_id });
                     });
 
                 return true;

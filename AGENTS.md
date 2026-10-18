@@ -30,9 +30,11 @@
 `composer show geekcodev/max-php-client` (по одному пакету за раз: два аргумента `composer show` не принимает), релизные
 теги — `git tag --sort=-v:refname` здесь и в соседних `../laravel-max-client`, `../max-php-client`.
 
-Constraint `geekcodev/laravel-max-client: ^1.2.0` в `composer.json` — намеренно жёсткий: код плагина, миграции и тесты
+Constraint `geekcodev/laravel-max-client: ^1.2.2` в `composer.json` — намеренно жёсткий: код плагина, миграции и тесты
 рассчитаны на форму реестра 1.2 (`max_chats.chat_id` — первичный ключ, связи в `max_chat_users`, §5 «Схема v1.2.0
-реестра»), а несовместимость с 1.1.x — ломающий переход, а не случайность. Но `composer.lock` не коммитится, поэтому
+реестра»), а несовместимость с 1.1.x — ломающий переход, а не случайность. Минимум именно `1.2.2`, а не `1.2.0`:
+полоса миграций `0000_00` появилась в 1.2.1 (в 1.2.0 ещё `0001_01_01_*`, и плагин в `0000_02` встаёт перед адаптером), а
+подписка webhook на нужные плагину типы апдейтов — в 1.2.2 (gotcha 21, 24). Но `composer.lock` не коммитится, поэтому
 фактически установленную версию всегда сверяй по `composer show`, а не по constraint в файле: расхождение даёт красный
 Gate (PHPStan, тесты). Release notes перехода — `.agents/release/RELEASE_NOTES_v1.1.0.md`, порядок обновления
 существующей установки — §5 и README «Обновление с v1.0.x на v1.1.0».
@@ -94,7 +96,8 @@ Gate (PHPStan, тесты). Release notes перехода — `.agents/release/
    а не сплошные списки из буллетов. Списки — только когда действительно перечисляешь однородные пункты (Gate, gotchas,
    чек-лист).
 8. `.env.example` — единственный эталон имён переменных плагина; при добавлении новой `FILAMENT_MAX_CHAT_*` переменной
-   синхронизируй его и `config/filament-max-chat.php`.
+   синхронизируй его и `config/filament-max-chat.php`. Это эталон имён, а не готовый `.env` для копирования целиком:
+   заданная переменная перекрывает дефолт конфига, а пустое значение булева ключа (`KEY=`) читается как `false`.
 9. Любой ключ перевода, который ты добавил в код, обязан существовать и в `lang/ru`, и в `lang/en` — иначе UI покажет
    сырые ключи, а тесты этого не поймают.
 10. По завершении каждой сессии заноси итог по формату из 4.1: строка в `.agents/journals/JOURNAL.md` + файл в
@@ -128,13 +131,23 @@ src/
     ChatMessagesSchemaRepoint.php    две фазы перевода max_chat_messages: remap() и repin() (обе зовёт
                                      команда max-chat:upgrade, миграция плагина только create)
     MaxChatSender.php                 отправка в MAX: sendFormatted (HTML) / sendAttachment (uploadMedia + sendFile)
-    MaxAttachmentStore.php            приватное хранение вложений (метаданные в JSON-колонке attachment)
+    MaxAttachmentStore.php            приватное хранение вложений всех девяти типов (метаданные в JSON-колонке attachment)
     ChatProfileRefresher.php          троттлинг и диспатч фоновой подгрузки профиля (сам API не дёргает)
   Jobs/RefreshChatProfilesJob.php     фоновая подгрузка профиля через MaxUserProfileService (getChatMembers)
   Support/TextSanitizer.php           санитизация HTML под whitelist тегов MAX + toMaxHtml()
   Models/MaxChat.php                  расширение пакетной модели клиента (messages/lastMessage, interlocutor, displayName)
   Models/MaxMessage.php               модель max_chat_messages
   Events/MaxMessageCreated.php        ShouldBroadcast в private-канал chat.channel
+  Events/MaxMessageUpdated.php        ShouldBroadcast `chat-message.updated` (после applyIncomingEdit)
+  Events/MaxMessageDeleted.php        ShouldBroadcast `chat-message.deleted` (после applyIncomingRemoval,
+                                      несёт идентификаторы, а не модели)
+  Events/MaxMessagesCleared.php       ShouldBroadcast `chat-message.cleared` (после applyIncomingClear,
+                                      несёт идентификаторы, а не модели)
+  Events/MaxChatRemoved.php           ShouldBroadcast `chat-removed` (после applyIncomingChatRemoval)
+  Listeners/HandleIncomingMaxUpdate.php  автообработка апдейтов MAX (регистрируется провайдером при
+                                      updates.auto_handle: created→storeIncoming, edited→applyIncomingEdit,
+                                      removed→applyIncomingRemoval, dialog_cleared→applyIncomingClear,
+                                      dialog_removed→applyIncomingChatRemoval, chat_title_changed→applyIncomingTitle)
   Enums/{MaxMessageDirection,MaxMessageSender}.php
   Http/Controllers/MaxAttachmentController.php  авторизованная отдача вложений
   Http/Controllers/UnreadCountController.php     JSON-счётчик непрочитанного (HTTP-poll на всех страницах панели)
@@ -142,7 +155,7 @@ tests/                             PHPUnit + Orchestra Testbench
   Fixtures/                          AdminPanelProvider, TestUser, миграция users, Gate chat.view/chat.answer
   Support/MakesChats.php             фикстуры реестра чатов под схему v1.2.0 (makeChat, linkChatUser, makeChatWithUser)
   Support/InspectsChatSchema.php     чтение внешних ключей таблицы для тестов команды перевода
-  Unit/                              сервисы, sanitizer, модели, enums, job, страница, провайдер
+  Unit/                              сервисы, sanitizer, модели, enums, job, страница, провайдер, слушатель
   Feature/                           Livewire OperatorChat, MaxAttachmentController, UnreadCountController,
                                      MaxChatMessagesSchema, ChatMessagesSchemaRepoint, MaxChatUpgradeCommand,
                                      MigrationOrder (полоса миграций и порядок FK по исходникам)
@@ -216,23 +229,53 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   `permissions.view` (`chat.view`), отправка ответов — `permissions.answer` (`chat.answer`); права проверяются строкой
   `$user->can(...)` — совместимо со spatie/laravel-permission и Gate. Оформление навигации и slug — `ui.*`
   (`navigation_group`, `navigation_icon`, `navigation_sort`, `navigation_label`, `title`, `slug`).
-- **Входящие сообщения**: host-приложение слушает `MaxUpdateReceived` (laravel-max-client) и вызывает
+- **Входящие сообщения**: по умолчанию плагин сам слушает `MaxUpdateReceived` (регистрирует слушателя
+  `HandleIncomingMaxUpdate` в `boot()`, пока `updates.auto_handle` не выключен) и вызывает
   `MaxMessageService::storeIncoming(Update)` — создаёт `max_chat_messages`, обновляет имя диалога, скачивает медиа во
-  приватный диск, эмитит `MaxMessageCreated`. Для действий пользователя без апдейта MAX (заявка, кнопка «Позвать
-  оператора») есть `storeIncomingForUser(int $userId, int $chatId, ?User $user, ?string $text, ?string $messageId)`:
+  приватный диск, эмитит `MaxMessageCreated`. Бизнес-логику апдейтов ведёт host-приложение, плагин трогает только ленту.
+  Для действий пользователя без апдейта MAX (заявка, кнопка «Позвать оператора») есть
+  `storeIncomingForUser(int $userId, int $chatId, ?User $user, ?string $text, ?string $messageId)`:
   профиль берётся из переданного `User` или резолвится из реестра `max_users`, сообщение сохраняется непрочитанным
   входящим, в MAX ничего не отправляется. Правка и удаление сообщений в MAX (`message_edited`, `message_removed`) —
   отдельные точки входа `applyIncomingEdit(Update)` и `applyIncomingRemoval(Update)`: обе ищут сообщение по паре «
-  `chat_id` + `message_id`» (идентификаторы сообщений уникальны внутри чата, а не глобально), правка без нового текста и
-  удаление с пустым `attachment` ничего не портят, удаление подчищает файл вложения через
-  `MaxAttachmentStore::deleteStored()`. Broadcast-событий на правку и удаление нет — лента обновляется опросом.
+  `chat_id` + `message_id`» (идентификаторы сообщений уникальны внутри чата, а не глобально). В `message_edited`
+  верхнего `message_id` в спеке нет — идентификатор берётся с фолбэком из `message.body.mid`, иначе правка молча
+  пропадает. Правка без нового текста и удаление с пустым `attachment` ничего не портят, удаление подчищает файл
+  вложения через `MaxAttachmentStore::deleteStored()`. `storeIncoming()` идемпотентен по паре «`chat_id` +
+  `message_id`»: повторная доставка апдейта или собственное событие бота на исходящее сообщение не создаёт дубль и не
+  переотправляет `MaxMessageCreated`. После правки и удаления уходят события `MaxMessageUpdated` и
+  `MaxMessageDeleted`, поэтому открытая лента поправляется сразу, а не при следующем `wire:poll`. Кроме сообщений
+  слушатель обрабатывает уровень диалога: `dialog_cleared` → `applyIncomingClear(Update)` чистит локальную историю и
+  файлы вложений **без** вызова MAX API (переписка в MAX уже очищена, поэтому `clearHistory()` здесь не годится — он
+  рассылал бы удаления повторно) и эмитит `MaxMessagesCleared`; `dialog_removed` → `applyIncomingChatRemoval(Update)`
+  помечает чат статусом `Removed` (как кнопка удаления в интерфейсе: история и вложения сохраняются) и эмитит
+  `MaxChatRemoved`, но только для чата в статусе `Active` — `dialog_removed` приходит и при остановке бота, а там статус
+  принадлежит адаптеру (gotcha 25); `chat_title_changed` → `applyIncomingTitle(Update)` пишет `title` только известному
+  чату, пустое значение игнорируется (так же поступает слушатель laravel-max-client). `message_callback`
+  плагин не обрабатывает: это действие пользователя, а не сообщение, и его место — бизнес-логика приложения. Плагин
+  можно держать рядом со слушателем `MaxUpdateReceived` приложения: он пишет только `max_chat_messages`, дубли снимаются
+  идемпотентностью, а для единственного источника автообработку выключают ключом `updates.auto_handle` (gotcha 23).
 - **Исходящие**: `MaxChatSender` — единственная точка отправки (`sendFormatted` с `format=html` после
   `TextSanitizer`; `sendAttachment` — `uploadMedia` + `sendFile`). Прямые вызовы `ApiClient` из Livewire запрещены.
-- **Вложения**: метаданные (type/path/name/mime/size) — JSON-колонка `attachment`; файлы на диске `attachments.disk`
-  вне public; отдача только через `GET route.uri` с правом `permissions.view` (`MaxAttachmentController`).
-- **Real-time**: `MaxMessageCreated` (broadcastAs `chat-message.created`) в private-канал `broadcast_channel`;
-  клиентская часть — `window.Echo` в `notification-script.blade.php`, фолбэк — `wire:poll` (интервал
-  `ui.poll_interval`). Глобальный счётчик непрочитанного на всех страницах панели: Echo + HTTP-poll
+- **Вложения**: `MaxAttachmentStore` разбирает все девять типов `AttachmentType` и пишет метаданные в JSON-колонку
+  `attachment`. Скачиваются на приватный диск (`attachments.disk`, вне public) и отдаются только через `GET route.uri`
+  с правом `permissions.view` (`MaxAttachmentController`) изображение, стикер, видео (`payload.url.mp4`), аудио и файл
+  (метаданные `type/path/name/mime/size`, у стикера ещё `code`); контакт, геолокация, превью ссылки и inline-клавиатура
+  файла не имеют и хранятся как данные (`name`/`phone`, `latitude`/`longitude`, `url`/`title`/`description`,
+  `buttons`). `share.image_url` не скачивается — это чужой домен, а не CDN MAX (A04). Строковые поля ограничиваются по
+  длине, а `url` проходит проверку схемы `http`/`https` (`MaxAttachmentStore::httpUrl()` — тот же фильтр вызывается из
+  представления, поэтому `href` сохранённых в обход стора метаданных не становится `javascript:`). Вложение без данных
+  даёт подпись-заглушку в ленте, а не пустой пузырь.
+- **Real-time**: `MaxMessageCreated` (broadcastAs `chat-message.created`), а после правки/удаления/очистки —
+  `MaxMessageUpdated` (`chat-message.updated`), `MaxMessageDeleted` (`chat-message.deleted`) и `MaxMessagesCleared`
+  (`chat-message.cleared`) в private-канал `broadcast_channel`; удаление диалога — `MaxChatRemoved` (`chat-removed`).
+  `MaxMessageDeleted` и `MaxMessagesCleared` несут идентификаторы, а не модели, потому что к моменту доставки строк уже
+  нет. Клиентская часть — `window.Echo` в `notification-script.blade.php`; `created` вызывает `chat-refresh` (дописать
+  новые), `updated`/`deleted`/`cleared` — `chat-reload` (перечитать ленту целиком), `chat-removed` закрывает ленту, если
+  удалён выбранный чат. Фолбэк — `wire:poll` (интервал `ui.poll_interval`): `refresh()` не только дописывает новые
+  сообщения, но и сверяет показанные строки с базой по тексту и метаданным вложений, поэтому правка (в том числе правка
+  без нового текста), удаление и очистка без broadcast доезжают следующим тиком, а не только при выборе другого чата.
+  Глобальный счётчик непрочитанного на всех страницах панели: Echo (все события истории) + HTTP-poll
   (`GET route.unread_count_uri` →
   `UnreadCountController`, JSON `{unread_count, latest_max_chat_id}`, интервал `notifications.poll_interval_seconds`).
   Echo подключается асинхронно: подписчик вешается на `EchoLoaded`, если `window.Echo` ещё не готов.
@@ -375,7 +418,7 @@ docker compose exec -T app composer security-audit # composer audit
 
 ## 10. Частые ошибки (gotchas)
 
-1. **Сверь форму реестра с фактически установленным `laravel-max-client`.** Constraint `^1.2.0` в `composer.json`
+1. **Сверь форму реестра с фактически установленным `laravel-max-client`.** Constraint `^1.2.2` в `composer.json`
    жёсткий, но `composer.lock` не коммитится — установленная версия может отличаться. Код плагина рассчитан на форму 1.2
    (`max_chats.chat_id` — PK, связи в `max_chat_users`); на 1.1.x PHPStan и тесты красные. Проверка:
    `composer show geekcodev/laravel-max-client` + §5 «Схема v1.2.0 реестра». Если версия адаптера снова поменяет форму
@@ -456,6 +499,39 @@ docker compose exec -T app composer security-audit # composer audit
     `0001_01_01_*` (v1.2.0) плагин в `0000_02` встаёт **перед** ним, и регрессия возвращается. Сквозная проверка по
     миграциям всех владельцев сразу живёт в приложении (`tests/Feature/MigrationOrderTest.php` там): в vendor пакета
     стоит установленная версия `laravel-max-client` с её собственными именами, поэтому читать чужие файлы отсюда нельзя.
+22. **`SELECT DISTINCT` + `ORDER BY` вне select list проходит на SQLite, но падает на PostgreSQL.** POSTGRES требует,
+    чтобы каждое выражение `ORDER BY` при `SELECT DISTINCT` присутствовало в select list; SQLite это правило не
+    проверяет, поэтому дефект виден только в проде и не ловится штатными тестами. Так был сломан поиск по диалогам:
+    `distinct max_chats.chat_id ... order by max_chats.last_activity_at` (SQLSTATE 42P10 в i2tech). Порядок в
+    промежуточной выборке идентификаторов не нужен — финальная выборка моделей задаёт сортировку сама. Такие места
+    проверяются тестом по исходному SQL (`DB::listen` и проверка на одновременное `distinct` и `order by`), а не
+    прогоном на SQLite, по той же логике, что и gotcha 16.
+23. **`updates.auto_handle` по умолчанию включён — ждать одного источника истории нельзя.** С версии, где появился
+    слушатель плагина, апдейт `MaxUpdateReceived` обрабатывают и плагин, и слушатель приложения-хоста, если он есть.
+    История не задваивается только потому, что `storeIncoming()` идемпотентен по паре «`chat_id` + `message_id`»:
+    повторная доставка апдейта или дублирующее событие бота на исходящее сообщение не создаёт вторую строку и не
+    переотправляет `MaxMessageCreated`. Если хост хочет единственный источник — выключи ключ и зови методы сам. В
+    `message_edited` верхнего `message_id` в спеке нет, идентификатор лежит только в `message.body.mid`, поэтому
+    `findByMaxMessageId()` берёт его с фолбэком; тест на правку без верхнего id — `MaxMessageServiceTest`.
+24. **`dialog_cleared` чистит историю без вызова MAX API, и его может не быть в подписке.** Метод
+    `applyIncomingClear(Update)` удаляет локальные строки и файлы вложений, потому что переписка на стороне MAX уже
+    очищена: `clearHistory()` здесь не подходит — он бы повторно рассылал `deleteMessage` в MAX. Если тип не приходит,
+    история в MAX очищена, а локально остаётся мусор. Тип `dialog_cleared`, как `message_edited` и `message_removed`,
+    должен быть в webhook-подписке MAX: раньше `MaxSubscribeCommand` подписывал на шесть типов, и правки, удаления,
+    очистка, удаление диалога и переименование чата терялись «молча». Это исправлено в `laravel-max-client` v1.2.2 —
+    дефолт расширен до 13 типов (`Config::DEFAULT_WEBHOOK_UPDATE_TYPES`, переопределяется ключом `webhook.update_types`
+    / env `MAX_WEBHOOK_UPDATE_TYPES`). Но пакет существующие подписки не трогает: после обновления адаптера нужно
+    выполнить `php artisan max:subscribe <url>` заново (POST на существующий URL обновляет подписку), иначе симптом
+    «обновился, а правки не приходят» сохранится. Long polling (`max:listen`) типы не фильтрует, вебхук — только
+    подписанные. Хостам с явным `webhook.update_types` это не грозит — переопределение побеждает дефолт.
+25. **`dialog_removed` приходит и при остановке бота, а `max_chats.status` пишут оба пакета.** По спеке MAX событие
+    `dialog_removed` вызывается в том числе при `bot_stopped`. На тот же апдейт реагирует слушатель
+    `laravel-max-client` (`PersistMaxChatListener`: `bot_stopped` → `Stopped`), а плагин обрабатывает `dialog_removed`
+    (`applyIncomingChatRemoval()` → `Removed`). Два писателя одного поля дали бы статус, зависящий от порядка
+    слушателей. Поэтому плагин понижает до `Removed` только чат в статусе `Active`: при остановке бота статус уже
+    `Stopped` (или станет им), и плагин не вмешивается — итоговое значение детерминировано, а чат и так скрыт из списка
+    (лист показывает только `Active`). Тот же guard делает повторную доставку `dialog_removed` идемпотентной. Не
+    ослабляйте его без анализа порядка регистрации слушателей у хоста.
 
 ## 11. Чек-лист перед завершением задачи
 

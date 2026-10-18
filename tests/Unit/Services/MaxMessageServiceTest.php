@@ -6,7 +6,11 @@ namespace GeekCo\FilamentMaxChat\Tests\Unit\Services;
 
 use GeekCo\FilamentMaxChat\Enums\MaxMessageDirection;
 use GeekCo\FilamentMaxChat\Enums\MaxMessageSender;
+use GeekCo\FilamentMaxChat\Events\MaxChatRemoved;
 use GeekCo\FilamentMaxChat\Events\MaxMessageCreated;
+use GeekCo\FilamentMaxChat\Events\MaxMessageDeleted;
+use GeekCo\FilamentMaxChat\Events\MaxMessageUpdated;
+use GeekCo\FilamentMaxChat\Events\MaxMessagesCleared;
 use GeekCo\FilamentMaxChat\Models\MaxChat;
 use GeekCo\FilamentMaxChat\Models\MaxMessage;
 use GeekCo\FilamentMaxChat\Services\MaxMessageService;
@@ -17,6 +21,7 @@ use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser as RegistryMaxUser;
 use GeekCo\MaxPhpClient\Dto\Attachment;
+use GeekCo\MaxPhpClient\Dto\ContactAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\ImageAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\Message;
 use GeekCo\MaxPhpClient\Dto\MessageBody;
@@ -27,6 +32,8 @@ use GeekCo\MaxPhpClient\Enum\AttachmentType;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use GeekCo\MaxPhpClient\Enum\UpdateType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
@@ -34,6 +41,8 @@ class MaxMessageServiceTest extends TestCase
 {
     use MakesChats;
     use RefreshDatabase;
+
+    private static int $midSequence = 0;
 
     public function test_store_incoming_creates_message_and_chat(): void
     {
@@ -445,6 +454,40 @@ class MaxMessageServiceTest extends TestCase
         $this->assertCount(1, $found);
     }
 
+    public function test_search_conversations_does_not_order_a_distinct_query(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Петр'));
+
+        /** @var list<string> $captured */
+        $captured = [];
+        DB::listen(static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$captured): void {
+            $captured[] = $query->sql;
+        });
+
+        $service->searchConversations('Петр');
+
+        $offenders = [];
+        foreach ($captured as $sql) {
+            if (str_contains(strtolower($sql), 'distinct') && str_contains(strtolower($sql), 'order by')) {
+                $offenders[] = $sql;
+            }
+        }
+
+        $this->assertSame([], $offenders);
+    }
+
+    public function test_search_conversations_is_case_insensitive(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Хочу купить дрон'));
+
+        $this->assertCount(1, $service->searchConversations('петр'));
+        $this->assertCount(1, $service->searchConversations('ПЕТР'));
+        $this->assertCount(1, $service->searchConversations('дрон'));
+        $this->assertCount(1, $service->searchConversations('ДРОН'));
+    }
+
     public function test_search_conversations_treats_percent_as_literal(): void
     {
         $service = app(MaxMessageService::class);
@@ -535,6 +578,32 @@ class MaxMessageServiceTest extends TestCase
         Storage::disk('local')->assertExists($attachment['path']);
     }
 
+    public function test_store_incoming_duplicate_does_not_download_attachment_twice(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'cdn.max.ru/*' => Http::response('jpeg-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+
+        $update = $this->incomingUpdateWithAttachments([
+            new Attachment(
+                type: AttachmentType::Image,
+                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/photo.jpg'),
+            ),
+        ]);
+
+        $service = app(MaxMessageService::class);
+
+        $first = $service->storeIncoming($update);
+        $second = $service->storeIncoming($update);
+
+        $this->assertNotNull($first);
+        $this->assertNotNull($second);
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, MaxMessage::query()->count());
+        $this->assertCount(1, Storage::disk('local')->allFiles());
+    }
+
     public function test_store_incoming_without_media_attachment_keeps_attachment_null(): void
     {
         Storage::fake('local');
@@ -547,6 +616,27 @@ class MaxMessageServiceTest extends TestCase
 
         $this->assertNotNull($message);
         $this->assertSame([], $message->attachment);
+    }
+
+    public function test_store_incoming_stores_contact_attachment_metadata(): void
+    {
+        Storage::fake('local');
+
+        $update = $this->incomingUpdateWithAttachments([
+            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+                hash: 'abc',
+                vcfInfo: "BEGIN:VCARD\nFN:Мария Сидорова\nTEL;TYPE=CELL:+79990001122\nEND:VCARD",
+            )),
+        ]);
+
+        $message = app(MaxMessageService::class)->storeIncoming($update);
+
+        $this->assertNotNull($message);
+        $attachments = $message->attachments();
+        $this->assertCount(1, $attachments);
+        $this->assertSame('contact', $attachments[0]['type']);
+        $this->assertSame('Мария Сидорова', $attachments[0]['name'] ?? null);
+        $this->assertSame('+79990001122', $attachments[0]['phone'] ?? null);
     }
 
     /**
@@ -749,7 +839,7 @@ class MaxMessageServiceTest extends TestCase
     public function test_apply_incoming_edit_rewrites_text_of_stored_message(): void
     {
         $service = app(MaxMessageService::class);
-        $message = $service->storeIncoming($this->incomingUpdate('Привет'));
+        $message = $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
         $this->assertNotNull($message);
 
         $edited = $service->applyIncomingEdit(
@@ -768,7 +858,7 @@ class MaxMessageServiceTest extends TestCase
     public function test_apply_incoming_edit_falls_back_to_caption(): void
     {
         $service = app(MaxMessageService::class);
-        $service->storeIncoming($this->incomingUpdate('Фото'));
+        $service->storeIncoming($this->incomingUpdate('Фото', 'm-1'));
 
         $edited = $service->applyIncomingEdit(
             $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', null, 'Новое подпись'),
@@ -793,7 +883,7 @@ class MaxMessageServiceTest extends TestCase
     public function test_apply_incoming_edit_ignores_message_of_another_chat(): void
     {
         $service = app(MaxMessageService::class);
-        $service->storeIncoming($this->incomingUpdate('Привет'));
+        $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
 
         $update = $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', 'Правка');
         $this->assertNull($service->applyIncomingEdit(
@@ -828,7 +918,7 @@ class MaxMessageServiceTest extends TestCase
     public function test_apply_incoming_edit_without_new_text_keeps_stored_text(): void
     {
         $service = app(MaxMessageService::class);
-        $service->storeIncoming($this->incomingUpdate('Привет'));
+        $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
 
         $this->assertNull($service->applyIncomingEdit(
             $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', null),
@@ -881,6 +971,372 @@ class MaxMessageServiceTest extends TestCase
         $this->assertDatabaseCount('max_chat_messages', 1);
     }
 
+    public function test_apply_incoming_edit_finds_message_by_body_mid_without_top_level_id(): void
+    {
+        // message_edited не несёт верхнего message_id: идентификатор есть только
+        // в message.body.mid, а chat_id выводится из message.recipient.chatId.
+        $service = app(MaxMessageService::class);
+        $message = $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
+        $this->assertNotNull($message);
+
+        $edited = $service->applyIncomingEdit(new Update(
+            updateType: UpdateType::MessageEdited,
+            timestamp: 2000,
+            message: new Message(
+                sender: $this->maxUser(),
+                recipient: new Recipient(chatId: 222, userId: 111),
+                timestamp: 2000,
+                body: new MessageBody(mid: 'm-1', seq: 1, text: 'Исправленный текст'),
+            ),
+        ));
+
+        $this->assertNotNull($edited);
+        $this->assertSame('Исправленный текст', $edited->text);
+        $this->assertSame($message->id, $edited->id);
+        $this->assertDatabaseCount('max_chat_messages', 1);
+    }
+
+    public function test_apply_incoming_edit_dispatches_updated_event(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([MaxMessageUpdated::class]);
+
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
+
+        $edited = $service->applyIncomingEdit(
+            $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', 'Новый текст'),
+        );
+        $this->assertNotNull($edited);
+
+        \Illuminate\Support\Facades\Event::assertDispatched(
+            MaxMessageUpdated::class,
+            static fn (MaxMessageUpdated $event): bool => $event->message->is($edited),
+        );
+    }
+
+    public function test_apply_incoming_removal_dispatches_deleted_event(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([MaxMessageDeleted::class]);
+
+        $service = app(MaxMessageService::class);
+        $message = $service->storeIncoming($this->incomingUpdate('Удаляемое', 'm-1'));
+        $this->assertNotNull($message);
+
+        $this->assertTrue($service->applyIncomingRemoval(
+            $this->messageChangeUpdate(UpdateType::MessageRemoved, 'm-1', null),
+        ));
+
+        \Illuminate\Support\Facades\Event::assertDispatched(
+            MaxMessageDeleted::class,
+            static fn (MaxMessageDeleted $event): bool => $event->maxChatId === 222
+                && $event->messageId === 'm-1'
+                && $event->messageRowId === $message->id,
+        );
+    }
+
+    public function test_apply_incoming_removal_of_unknown_message_dispatches_nothing(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([MaxMessageDeleted::class]);
+
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
+
+        $this->assertFalse($service->applyIncomingRemoval(
+            $this->messageChangeUpdate(UpdateType::MessageRemoved, 'm-unknown', null),
+        ));
+
+        \Illuminate\Support\Facades\Event::assertNotDispatched(MaxMessageDeleted::class);
+    }
+
+    public function test_message_updated_event_broadcasts_on_private_channel(): void
+    {
+        $service = app(MaxMessageService::class);
+        $message = $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
+        $this->assertNotNull($message);
+
+        $event = new MaxMessageUpdated($message);
+
+        $this->assertSame('chat-message.updated', $event->broadcastAs());
+        $this->assertSame('private-chat.channel', $event->broadcastOn()[0]->name);
+    }
+
+    public function test_message_deleted_event_broadcasts_on_private_channel(): void
+    {
+        $event = new MaxMessageDeleted(222, 'm-1', 7);
+
+        $this->assertSame('chat-message.deleted', $event->broadcastAs());
+        $this->assertSame('private-chat.channel', $event->broadcastOn()[0]->name);
+        $this->assertSame(7, $event->broadcastWith()['id']);
+        $this->assertSame('m-1', $event->broadcastWith()['message_id']);
+    }
+
+    public function test_apply_incoming_clear_deletes_only_chat_history_and_calls_no_max_api(): void
+    {
+        $sender = $this->mock(MaxChatSender::class);
+        $sender->shouldNotReceive('deleteMessage');
+
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Первое', 'm-1'));
+        $service->storeIncoming($this->incomingUpdate('Второе', 'm-2'));
+        $service->storeIncoming($this->incomingChatUpdate(333, 'Чужое', 'm-3'));
+
+        Event::fake([MaxMessagesCleared::class]);
+
+        $deleted = $service->applyIncomingClear(new Update(
+            updateType: UpdateType::DialogCleared,
+            timestamp: 1000,
+            chatId: 222,
+        ));
+
+        $this->assertSame(2, $deleted);
+        $this->assertDatabaseHas('max_chat_messages', ['max_chat_id' => 333]);
+        $this->assertSame(1, MaxMessage::query()->count());
+
+        Event::assertDispatched(
+            MaxMessagesCleared::class,
+            static fn (MaxMessagesCleared $event): bool => $event->maxChatId === 222,
+        );
+    }
+
+    public function test_apply_incoming_clear_removes_stored_attachment_files(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'cdn.max.ru/*' => Http::response('jpeg-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdateWithAttachments([
+            new Attachment(
+                type: AttachmentType::Image,
+                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/photo.jpg'),
+            ),
+        ]));
+
+        $this->assertCount(1, Storage::disk('local')->allFiles());
+
+        $service->applyIncomingClear(new Update(
+            updateType: UpdateType::DialogCleared,
+            timestamp: 1000,
+            chatId: 222,
+        ));
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertDatabaseCount('max_chat_messages', 0);
+    }
+
+    public function test_apply_incoming_clear_without_chat_is_noop(): void
+    {
+        Event::fake([MaxMessagesCleared::class]);
+
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Не удаляется', 'm-1'));
+
+        $deleted = $service->applyIncomingClear(new Update(
+            updateType: UpdateType::DialogCleared,
+            timestamp: 1000,
+        ));
+
+        $this->assertSame(0, $deleted);
+        $this->assertDatabaseCount('max_chat_messages', 1);
+
+        Event::assertNotDispatched(MaxMessagesCleared::class);
+    }
+
+    public function test_apply_incoming_chat_removal_marks_status_removed_and_keeps_history(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Сохранённое', 'm-1'));
+
+        Event::fake([MaxChatRemoved::class]);
+
+        $removed = $service->applyIncomingChatRemoval(new Update(
+            updateType: UpdateType::DialogRemoved,
+            timestamp: 1000,
+            chatId: 222,
+        ));
+
+        $this->assertTrue($removed);
+
+        $chat = MaxChat::query()->find(222);
+        $this->assertNotNull($chat);
+        $this->assertSame(MaxChatStatus::Removed, $chat->status);
+        $this->assertDatabaseCount('max_chat_messages', 1);
+
+        Event::assertDispatched(
+            MaxChatRemoved::class,
+            static fn (MaxChatRemoved $event): bool => $event->maxChatId === 222,
+        );
+    }
+
+    public function test_apply_incoming_chat_removal_without_chat_is_noop(): void
+    {
+        Event::fake([MaxChatRemoved::class]);
+
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Чат остаётся', 'm-1'));
+
+        $removed = $service->applyIncomingChatRemoval(new Update(
+            updateType: UpdateType::DialogRemoved,
+            timestamp: 1000,
+        ));
+
+        $this->assertFalse($removed);
+        $this->assertSame(MaxChatStatus::Active, MaxChat::query()->find(222)?->status);
+
+        Event::assertNotDispatched(MaxChatRemoved::class);
+    }
+
+    public function test_apply_incoming_chat_removal_for_unknown_chat_is_noop(): void
+    {
+        Event::fake([MaxChatRemoved::class]);
+
+        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new Update(
+            updateType: UpdateType::DialogRemoved,
+            timestamp: 1000,
+            chatId: 999,
+        ));
+
+        $this->assertFalse($removed);
+
+        Event::assertNotDispatched(MaxChatRemoved::class);
+    }
+
+    public function test_apply_incoming_chat_removal_skips_chat_stopped_by_adapter(): void
+    {
+        // dialog_removed приходит и при остановке бота: статус Stopped уже записал
+        // слушатель laravel-max-client, поэтому плагин чат не трогает.
+        $this->makeChat(222, ['status' => MaxChatStatus::Stopped]);
+
+        Event::fake([MaxChatRemoved::class]);
+
+        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new Update(
+            updateType: UpdateType::DialogRemoved,
+            timestamp: 1000,
+            chatId: 222,
+        ));
+
+        $this->assertFalse($removed);
+        $this->assertSame(MaxChatStatus::Stopped, MaxChat::query()->find(222)?->status);
+
+        Event::assertNotDispatched(MaxChatRemoved::class);
+    }
+
+    public function test_apply_incoming_chat_removal_is_idempotent_for_removed_chat(): void
+    {
+        $this->makeChat(222, ['status' => MaxChatStatus::Removed]);
+
+        Event::fake([MaxChatRemoved::class]);
+
+        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new Update(
+            updateType: UpdateType::DialogRemoved,
+            timestamp: 1000,
+            chatId: 222,
+        ));
+
+        $this->assertFalse($removed);
+
+        Event::assertNotDispatched(MaxChatRemoved::class);
+    }
+
+    public function test_apply_incoming_title_updates_existing_chat(): void
+    {
+        $this->makeChat(222, ['title' => null]);
+
+        $chat = app(MaxMessageService::class)->applyIncomingTitle(new Update(
+            updateType: UpdateType::ChatTitleChanged,
+            timestamp: 1000,
+            chatId: 222,
+            title: '  Новая группа  ',
+        ));
+
+        $this->assertNotNull($chat);
+        $this->assertSame('Новая группа', $chat->title);
+    }
+
+    public function test_apply_incoming_title_ignores_empty_title(): void
+    {
+        $this->makeChat(222, ['title' => 'Старое название']);
+
+        $chat = app(MaxMessageService::class)->applyIncomingTitle(new Update(
+            updateType: UpdateType::ChatTitleChanged,
+            timestamp: 1000,
+            chatId: 222,
+            title: '   ',
+        ));
+
+        $this->assertNull($chat);
+        $this->assertSame('Старое название', MaxChat::query()->find(222)?->title);
+    }
+
+    public function test_apply_incoming_title_skips_unknown_chat_and_missing_chat_id(): void
+    {
+        $service = app(MaxMessageService::class);
+
+        $this->assertNull($service->applyIncomingTitle(new Update(
+            updateType: UpdateType::ChatTitleChanged,
+            timestamp: 1000,
+            chatId: 999,
+            title: 'Название',
+        )));
+
+        $this->assertNull($service->applyIncomingTitle(new Update(
+            updateType: UpdateType::ChatTitleChanged,
+            timestamp: 1000,
+            title: 'Название',
+        )));
+
+        $this->assertDatabaseCount('max_chats', 0);
+    }
+
+    public function test_messages_cleared_event_broadcasts_on_private_channel(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Непрочитанное', 'm-1'));
+
+        $event = new MaxMessagesCleared(222);
+
+        $this->assertSame('chat-message.cleared', $event->broadcastAs());
+        $this->assertSame('private-chat.channel', $event->broadcastOn()[0]->name);
+        $this->assertSame(222, $event->broadcastWith()['max_chat_id']);
+        $this->assertSame(1, $event->broadcastWith()['unread_count']);
+    }
+
+    public function test_chat_removed_event_broadcasts_on_private_channel(): void
+    {
+        $event = new MaxChatRemoved(222);
+
+        $this->assertSame('chat-removed', $event->broadcastAs());
+        $this->assertSame('private-chat.channel', $event->broadcastOn()[0]->name);
+        $this->assertSame(222, $event->broadcastWith()['max_chat_id']);
+    }
+
+    public function test_store_incoming_is_idempotent_for_same_message_id(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([MaxMessageCreated::class]);
+
+        $service = app(MaxMessageService::class);
+
+        $first = $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
+        $second = $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
+
+        $this->assertNotNull($first);
+        $this->assertNotNull($second);
+        $this->assertSame($first->id, $second->id);
+        $this->assertDatabaseCount('max_chat_messages', 1);
+        \Illuminate\Support\Facades\Event::assertDispatchedTimes(MaxMessageCreated::class, 1);
+    }
+
+    public function test_store_incoming_does_not_deduplicate_without_message_id(): void
+    {
+        $service = app(MaxMessageService::class);
+
+        $service->storeIncomingForUser(111, 222, $this->maxUser(), 'Первое без id');
+        $service->storeIncomingForUser(111, 222, $this->maxUser(), 'Второе без id');
+
+        $this->assertDatabaseCount('max_chat_messages', 2);
+    }
+
     private function messageChangeUpdate(
         UpdateType $type,
         string $messageId,
@@ -901,7 +1357,7 @@ class MaxMessageServiceTest extends TestCase
         );
     }
 
-    private function incomingUpdate(string $text): Update
+    private function incomingUpdate(string $text, ?string $mid = null): Update
     {
         return new Update(
             updateType: UpdateType::MessageCreated,
@@ -912,7 +1368,27 @@ class MaxMessageServiceTest extends TestCase
                 sender: $this->maxUser(),
                 recipient: new Recipient(chatId: 222, userId: 111),
                 timestamp: 1000,
-                body: new MessageBody(mid: 'm-1', seq: 1, text: $text),
+                body: new MessageBody(mid: $mid ?? $this->nextMid(), seq: 1, text: $text),
+            ),
+        );
+    }
+
+    private function nextMid(): string
+    {
+        return 'm-'.(++self::$midSequence);
+    }
+
+    private function incomingChatUpdate(int $chatId, string $text, ?string $mid = null): Update
+    {
+        return new Update(
+            updateType: UpdateType::MessageCreated,
+            timestamp: 1000,
+            chatId: $chatId,
+            message: new Message(
+                sender: $this->maxUser(),
+                recipient: new Recipient(chatId: $chatId, userId: 111),
+                timestamp: 1000,
+                body: new MessageBody(mid: $mid ?? $this->nextMid(), seq: 1, text: $text),
             ),
         );
     }
