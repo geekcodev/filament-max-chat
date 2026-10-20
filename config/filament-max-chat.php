@@ -165,4 +165,27 @@ return [
         'poll_interval_seconds' => (int) env('FILAMENT_MAX_CHAT_NOTIFICATIONS_POLL_INTERVAL', 15),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Email-уведомления о непрочитанных чатах
+    |--------------------------------------------------------------------------
+    |
+    | Команда max-chat:notify-unread (регистрируется в планировщике сама, пока
+    | включено) находит входящие сообщения, не прочитанные дольше
+    | unread_after_minutes, и шлёт получателям дайджест со ссылкой на чат.
+    | Получатели: общий список to + оператор, последний отвечавший в чате
+    | (email из user_model); у каждого сообщения — одно письмо, повторов нет.
+    | Требует настроенного MAIL_* хост-приложения. По умолчанию выключено.
+    |
+    */
+
+    'email' => [
+        'enabled' => filter_var(env('FILAMENT_MAX_CHAT_EMAIL_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'unread_after_minutes' => (int) env('FILAMENT_MAX_CHAT_EMAIL_UNREAD_AFTER_MINUTES', 5),
+        'to' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('FILAMENT_MAX_CHAT_EMAIL_TO', '')),
+        ), static fn (string $email): bool => $email !== '')),
+    ],
+
 ];

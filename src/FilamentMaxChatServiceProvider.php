@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxChat;
 
+use GeekCo\FilamentMaxChat\Console\MaxChatUnreadNotificationCommand;
 use GeekCo\FilamentMaxChat\Console\MaxChatUpgradeCommand;
 use GeekCo\FilamentMaxChat\Http\Controllers\MaxAttachmentController;
 use GeekCo\FilamentMaxChat\Http\Controllers\UnreadCountController;
 use GeekCo\FilamentMaxChat\Listeners\HandleIncomingMaxUpdate;
 use GeekCo\FilamentMaxChat\Livewire\OperatorChat as OperatorChatComponent;
 use GeekCo\LaravelMaxClient\Webhook\MaxUpdateReceived;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -33,10 +35,12 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
         $this->registerAttachmentRoute();
         $this->registerUnreadCountRoute();
         $this->registerIncomingUpdateListener();
+        $this->registerUnreadEmailSchedule();
 
         if ($this->app->runningInConsole()) {
             $this->commands([
                 MaxChatUpgradeCommand::class,
+                MaxChatUnreadNotificationCommand::class,
             ]);
 
             $this->publishes([
@@ -92,5 +96,23 @@ class FilamentMaxChatServiceProvider extends ServiceProvider
         }
 
         Event::listen(MaxUpdateReceived::class, HandleIncomingMaxUpdate::class);
+    }
+
+    /**
+     * Рассылка непрочитанного в планировщик хоста: пока email.enabled включён,
+     * команда max-chat:notify-unread ставится в расписание каждую минуту без
+     * правок schedule хост-приложения. Проверка конфига — в момент разрешения
+     * Schedule (старт консольного ядра): так событие видит и .env, и кэшированный
+     * конфиг, а выключенное по умолчанию расписание не создаётся вовсе.
+     */
+    private function registerUnreadEmailSchedule(): void
+    {
+        $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
+            if (config()->boolean('filament-max-chat.email.enabled') === false) {
+                return;
+            }
+
+            $schedule->command('max-chat:notify-unread')->everyMinute();
+        });
     }
 }

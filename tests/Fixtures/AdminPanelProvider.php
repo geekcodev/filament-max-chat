@@ -16,6 +16,9 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            // Filament v5 требует default-панель: getUrl() страниц без явного
+            // panel резолвит именно её (иначе NoDefaultPanelSetException).
+            ->default()
             ->plugin(FilamentMaxChatPlugin::make());
     }
 }

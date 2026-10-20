@@ -300,6 +300,124 @@ class MaxAttachmentStoreTest extends TestCase
         $this->assertSame('data.csv', $meta['name']);
     }
 
+    public function test_file_filename_from_webhook_overrides_url_name_and_extension(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'fd.oneme.ru/*' => Http::response('doc-bytes', 200, ['Content-Type' => 'application/octet-stream']),
+        ]);
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::File,
+                payload: new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?rq=abc&expires=123'),
+                filename: 'Отчёт за 2026 год.pdf',
+            ),
+        ]);
+
+        $this->assertCount(1, $meta);
+        $meta = $meta[0];
+        $this->assertArrayHasKey('name', $meta);
+        $this->assertArrayHasKey('path', $meta);
+        $this->assertSame('Отчёт за 2026 год.pdf', $meta['name']);
+        $this->assertTrue(str_ends_with($meta['path'], '.pdf'));
+        Storage::disk('local')->assertExists($meta['path']);
+    }
+
+    public function test_file_filename_is_sanitized_to_basename_without_path_components(): void
+    {
+        Storage::fake('local');
+        // Closure-форма обязательна при нескольких скачиваниях на одном фейке:
+        // Http::response() отдаёт один promise с одним stream, и sinkStubHandler
+        // на втором запросе читает его без rewind — тело пустое, размер 0.
+        Http::fake(fn () => Http::response('file-bytes', 200, ['Content-Type' => 'application/octet-stream']));
+
+        $store = app(MaxAttachmentStore::class);
+        $payload = new FileAttachmentPayload(url: 'https://cdn.max.ru/getfile?rq=abc');
+
+        $withSlashes = $store->storeFromIncoming([
+            new Attachment(type: AttachmentType::File, payload: $payload, filename: '../../../etc/passwd'),
+        ]);
+        $withBackslashes = $store->storeFromIncoming([
+            new Attachment(type: AttachmentType::File, payload: $payload, filename: 'C:\\Users\\max\\report.docx'),
+        ]);
+
+        $slashed = $withSlashes[0];
+        $backslashed = $withBackslashes[0];
+        $this->assertArrayHasKey('name', $slashed);
+        $this->assertArrayHasKey('name', $backslashed);
+        $this->assertArrayHasKey('path', $backslashed);
+        $this->assertSame('passwd', $slashed['name']);
+        $this->assertSame('report.docx', $backslashed['name']);
+        $this->assertTrue(str_ends_with($backslashed['path'], '.docx'));
+    }
+
+    public function test_file_filename_control_characters_are_stripped(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'cdn.max.ru/*' => Http::response('file-bytes', 200, ['Content-Type' => 'application/octet-stream']),
+        ]);
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::File,
+                payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/getfile?rq=abc'),
+                filename: "report\r\n\x00final.pdf",
+            ),
+        ]);
+
+        $meta = $meta[0];
+        $this->assertArrayHasKey('name', $meta);
+        $this->assertSame('reportfinal.pdf', $meta['name']);
+    }
+
+    public function test_file_filename_falls_back_to_url_name_when_empty_or_dots_only(): void
+    {
+        Storage::fake('local');
+        // Closure-форма — см. комментарий в тесте про санитизацию имени файла.
+        Http::fake(fn () => Http::response('file-bytes', 200, ['Content-Type' => 'application/octet-stream']));
+
+        $store = app(MaxAttachmentStore::class);
+        $payload = new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/report.pdf');
+
+        $empty = $store->storeFromIncoming([
+            new Attachment(type: AttachmentType::File, payload: $payload, filename: ''),
+        ]);
+        $dots = $store->storeFromIncoming([
+            new Attachment(type: AttachmentType::File, payload: $payload, filename: '...'),
+        ]);
+
+        $emptyMeta = $empty[0];
+        $dotsMeta = $dots[0];
+        $this->assertArrayHasKey('name', $emptyMeta);
+        $this->assertArrayHasKey('name', $dotsMeta);
+        $this->assertSame('report.pdf', $emptyMeta['name']);
+        $this->assertSame('report.pdf', $dotsMeta['name']);
+    }
+
+    public function test_file_extension_falls_back_to_url_when_filename_has_no_usable_extension(): void
+    {
+        Storage::fake('local');
+        Http::fake([
+            'cdn.max.ru/*' => Http::response('file-bytes', 200, ['Content-Type' => 'application/octet-stream']),
+        ]);
+
+        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
+            new Attachment(
+                type: AttachmentType::File,
+                payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/data.csv'),
+                filename: 'README',
+            ),
+        ]);
+
+        $meta = $meta[0];
+        $this->assertArrayHasKey('name', $meta);
+        $this->assertArrayHasKey('path', $meta);
+        $this->assertSame('README', $meta['name']);
+        $this->assertTrue(str_ends_with($meta['path'], '.csv'));
+    }
+
     public function test_store_from_incoming_sticker_downloads_image_and_keeps_code(): void
     {
         Storage::fake('local');

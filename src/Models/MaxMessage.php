@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property list<StoredAttachment>|null $attachment
  * @property int|null $operator_id
  * @property \Illuminate\Support\Carbon|null $read_at
+ * @property \Illuminate\Support\Carbon|null $notified_at null, пока email-уведомление не отправлялось
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property-read MaxUser|null $sender
@@ -43,6 +44,7 @@ class MaxMessage extends Model
         'attachment',
         'operator_id',
         'read_at',
+        'notified_at',
     ];
 
     protected function casts(): array
@@ -56,6 +58,7 @@ class MaxMessage extends Model
             'attachment' => 'array',
             'operator_id' => 'integer',
             'read_at' => 'datetime',
+            'notified_at' => 'datetime',
         ];
     }
 

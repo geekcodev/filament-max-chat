@@ -30,14 +30,16 @@
 `composer show geekcodev/max-php-client` (по одному пакету за раз: два аргумента `composer show` не принимает), релизные
 теги — `git tag --sort=-v:refname` здесь и в соседних `../laravel-max-client`, `../max-php-client`.
 
-Constraint `geekcodev/laravel-max-client: ^1.2.2` в `composer.json` — намеренно жёсткий: код плагина, миграции и тесты
+Constraint `geekcodev/laravel-max-client: ^1.2.3` в `composer.json` — намеренно жёсткий: код плагина, миграции и тесты
 рассчитаны на форму реестра 1.2 (`max_chats.chat_id` — первичный ключ, связи в `max_chat_users`, §5 «Схема v1.2.0
-реестра»), а несовместимость с 1.1.x — ломающий переход, а не случайность. Минимум именно `1.2.2`, а не `1.2.0`:
-полоса миграций `0000_00` появилась в 1.2.1 (в 1.2.0 ещё `0001_01_01_*`, и плагин в `0000_02` встаёт перед адаптером), а
-подписка webhook на нужные плагину типы апдейтов — в 1.2.2 (gotcha 21, 24). Но `composer.lock` не коммитится, поэтому
-фактически установленную версию всегда сверяй по `composer show`, а не по constraint в файле: расхождение даёт красный
-Gate (PHPStan, тесты). Release notes перехода — `.agents/release/RELEASE_NOTES_v1.1.0.md`, порядок обновления
-существующей установки — §5 и README «Обновление с v1.0.x на v1.1.0».
+реестра»), а несовместимость с 1.1.x — ломающий переход, а не случайность. История порога: форма реестра — в 1.2.0,
+полоса миграций `0000_00` — в 1.2.1 (в 1.2.0 ещё `0001_01_01_*`, и плагин в `0000_02` встаёт перед адаптером), подписка
+webhook на нужные плагину типы апдейтов — в 1.2.2 (gotcha 21, 24), а `1.2.3` — минимальная версия, синхронизированная с
+ядром `max-php-client` ^1.1.11 (толерантный разбор nullable-`hash` входящего контакта). Но
+`composer.lock` не коммитится, поэтому фактически установленную версию всегда сверяй по `composer show`, а не по
+constraint в файле: расхождение даёт красный Gate (PHPStan, тесты). Release notes перехода —
+`.agents/release/RELEASE_NOTES_v1.1.0.md`, порядок обновления существующей установки — §5 и README «Обновление с v1.0.x
+на v1.1.0».
 
 ### Регрессии не чиним в стороннем проекте
 
@@ -111,19 +113,24 @@ Gate (PHPStan, тесты). Release notes перехода — `.agents/release/
 
 ```
 config/filament-max-chat.php       publishable-конфиг (--tag=filament-max-chat-config)
-database/migrations/               миграции max_chat_messages: create + nullable user_id (loadMigrationsFrom, публикация опциональна)
-lang/{ru,en}/chat.php              подписи UI страницы чата
+database/migrations/               миграции max_chat_messages: create + nullable user_id + индекс непрочитанного +
+                                   notified_at email (loadMigrationsFrom, публикация опциональна)
+lang/{ru,en}/chat.php              подписи UI страницы чата и email-дайджеста (`mail.*`)
 resources/
   css/filament-max-chat.css        стили чата и бейджа непрочитанного (импорт в теме хоста)
   views/pages/operator-chat.blade.php   Filament-страница (обёртка Livewire-компонента)
   views/components/operator-chat.blade.php   Blade Livewire-чата (диалоги, лента, ответ, вложения, wire:poll)
   views/components/notification-script.blade.php  клиентский JS: Echo + HTTP-poll + звук/браузерные уведомления
+  views/mail/unread-chats.blade.php   HTML-дайджест о непрочитанных чатах (UnreadChatsMail)
+  views/mail/unread-chats-text.blade.php  текстовая часть письма (text/plain, без экранирования — см. комментарий)
 src/
   FilamentMaxChatServiceProvider.php  composition root: config/views/lang publish, алиас компонента, роуты
   FilamentMaxChatPlugin.php           Filament v5 plugin: страница чата в панели
   Pages/OperatorChat.php              страница панели (доступ permissions.view)
   Livewire/OperatorChat.php           состояние чата: диалоги, лента, ответ, вложения (алиас filament-max-chat)
   Console/MaxChatUpgradeCommand.php перевод истории переписки на форму реестра v1.2.0 (max-chat:upgrade)
+  Console/MaxChatUnreadNotificationCommand.php email-напоминание о непрочитанных (max-chat:notify-unread)
+  Mail/UnreadChatsMail.php           дайджест о непрочитанных чатах (HTML + text/plain, синхронная отправка)
   Services/
     MaxMessageService.php            история: storeIncoming/storeIncomingForUser/storeOutgoing/applyIncomingEdit/
                                      applyIncomingRemoval/conversations/messagesFor/markRead/deleteMessage/
@@ -133,6 +140,7 @@ src/
     MaxChatSender.php                 отправка в MAX: sendFormatted (HTML) / sendAttachment (uploadMedia + sendFile)
     MaxAttachmentStore.php            приватное хранение вложений всех девяти типов (метаданные в JSON-колонке attachment)
     ChatProfileRefresher.php          троттлинг и диспатч фоновой подгрузки профиля (сам API не дёргает)
+    UnreadChatNotifier.php            email-дайджест о непрочитанных: порог, получатели, notified_at (не шлёт MAX API)
   Jobs/RefreshChatProfilesJob.php     фоновая подгрузка профиля через MaxUserProfileService (getChatMembers)
   Support/TextSanitizer.php           санитизация HTML под whitelist тегов MAX + toMaxHtml()
   Models/MaxChat.php                  расширение пакетной модели клиента (messages/lastMessage, interlocutor, displayName)
@@ -288,6 +296,19 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   иконка `max_chats.icon_url` из `getChat()` (`MaxChat::avatarUrl()`/`fullAvatarUrl()`), поэтому профиль собеседника в
   таких чатах может отсутствовать без потери картинки. Входящее сообщение подписывается отправителем через
   `MaxMessage::sender()`/`senderName()` (по `user_id` самого сообщения), а не единственным `interlocutor()` чата.
+- **Email-уведомления о непрочитанных** (`email.*`, по умолчанию выключены): команда `max-chat:notify-unread` находит
+  входящие с `read_at` null и `notified_at` null старше `email.unread_after_minutes` и шлёт получателям дайджест
+  (`UnreadChatsMail`, синхронный `send()` без очереди, HTML + text/plain). Получатели чата — общий список `email.to`
+  (после проверки `filter_var`) плюс оператор, последний отвечавший в чате: его email берётся из `user_model` по
+  `operator_id` последнего исходящего сообщения, потому что привязки «чат → оператор» в реестре адаптера нет.
+  Напоминание однократное: после успешной доставки хотя бы одному получателю строки помечаются `notified_at`; чат без
+  единого адресата не помечается — попытка повторится, когда адрес появится. Чат, выпавший из реестра, помечается без
+  письма (иначе минутный запуск сканировал бы его заново); ошибка почты логируется без содержимого переписки, строки
+  остаются непомеченными и попытка повторяется. При включённом `email.enabled` команда сама встаёт в планировщик хоста
+  (`->everyMinute()`, проверка конфига в момент разрешения `Schedule`); настроенный `MAIL_*` — зона хост-приложения.
+  Ссылка в письме — `Pages\OperatorChat::getUrl(['chat_id' => ...])`, для которого обязателен default-панель Filament v5
+  (§10 gotcha 27). Бизнес-логика «кому и когда писать» хоста плагин не знает — список `to` и порог настраиваются, а
+  эскалации «если не прочитали за час — директору» остаются приложением.
 - **Переопределение моделей**: `chat_model` — подкласс пакетного `GeekCo\LaravelMaxClient\Models\MaxChat` (таблица
   `max_chats`); `user_model` — модель оператора для связи `operator_id`. Модель связи чата и пользователя берётся из
   `laravel-max-client.chats.chat_users_model`.
@@ -300,7 +321,7 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   поэтому знаковость проверяется по исходникам миграций (§10 gotcha 16). Идентификаторы **сообщений**, наоборот,
   строковые (`message_id` в MAX — строка) и уникальны только внутри чата, поэтому поиск локального сообщения по апдейту
   всегда идёт по паре «`chat_id` + `message_id» — иначе событие из одного чата перепишет историю другого.
-- **Миграции** грузятся автоматически из пакета (`loadMigrationsFrom`, публикация не нужна). У плагина три миграции:
+- **Миграции** грузятся автоматически из пакета (`loadMigrationsFrom`, публикация не нужна). У плагина четыре миграции:
   `0000_02_000001_create_max_chat_messages_table.php` — create-миграция под форму реестра v1.2.0 с
   `user_id` **NOT NULL**, и `0000_02_000002_make_max_chat_messages_user_id_nullable.php` — аддитивная миграция,
   снимающая `NOT NULL`: у чата, чей состав в `max_chat_users` ещё не синхронизирован (канал, группа, куда бота только
@@ -310,10 +331,13 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   `(direction, read_at)` под подсчёт непрочитанного: бейдж навигации считает `count(*) where direction = 'in' and
     read_at is null` на каждой отрисовке страницы, а существующие индексы (с ведущими `max_chat_id` и `user_id`) эту
   выборку не покрывают — без индекса счёт идёт полным сканом. Аддитивная и идемпотентная: в `up()` стоит guard
-  `Schema::hasIndex`, потому что приложение-хост могло добавить такой же индекс своей миграцией. Выполненные миграции
-  нельзя править на месте — новая колонка или новое ограничение добавляются только отдельной аддитивной миграцией,
-  поэтому правка create-миграции допустима лишь пока релиз не опубликован. Переименовывать миграцию можно только вместе
-  с guard `Schema::hasTable()` в `up()`:
+  `Schema::hasIndex`, потому что приложение-хост могло добавить такой же индекс своей миграцией. Четвёртая,
+  `0000_02_000004_add_notified_at_to_max_chat_messages.php`, добавляет колонку `notified_at` — отметку об отправленном
+  email-напоминании о непрочитанном (guard `hasTable`/`hasColumn`; индекс не создаётся — выборку ведёт составной
+  `(direction, read_at)`, а `notified_at` фильтруется внутри небольшого множества непрочитанных строк). Выполненные
+  миграции нельзя править на месте — новая колонка или новое ограничение добавляются только отдельной аддитивной
+  миграцией, поэтому правка create-миграции допустима лишь пока релиз не опубликован. Переименовывать миграцию можно
+  только вместе с guard `Schema::hasTable()` в `up()`:
   новое имя числится невыполненным у установки, прошедшей старую версию, то есть переименование без guard ломает ровно
   ту установку, ради которой делается. Миграций, переписывающих данные, у плагина нет. Перенос истории на новую форму
   реестра миграцией **не** делается: `php artisan migrate` проходит целиком до `max:upgrade`, поэтому фаза remap
@@ -418,7 +442,7 @@ docker compose exec -T app composer security-audit # composer audit
 
 ## 10. Частые ошибки (gotchas)
 
-1. **Сверь форму реестра с фактически установленным `laravel-max-client`.** Constraint `^1.2.2` в `composer.json`
+1. **Сверь форму реестра с фактически установленным `laravel-max-client`.** Constraint `^1.2.3` в `composer.json`
    жёсткий, но `composer.lock` не коммитится — установленная версия может отличаться. Код плагина рассчитан на форму 1.2
    (`max_chats.chat_id` — PK, связи в `max_chat_users`); на 1.1.x PHPStan и тесты красные. Проверка:
    `composer show geekcodev/laravel-max-client` + §5 «Схема v1.2.0 реестра». Если версия адаптера снова поменяет форму
@@ -502,7 +526,7 @@ docker compose exec -T app composer security-audit # composer audit
 22. **`SELECT DISTINCT` + `ORDER BY` вне select list проходит на SQLite, но падает на PostgreSQL.** POSTGRES требует,
     чтобы каждое выражение `ORDER BY` при `SELECT DISTINCT` присутствовало в select list; SQLite это правило не
     проверяет, поэтому дефект виден только в проде и не ловится штатными тестами. Так был сломан поиск по диалогам:
-    `distinct max_chats.chat_id ... order by max_chats.last_activity_at` (SQLSTATE 42P10 в i2tech). Порядок в
+    `distinct max_chats.chat_id ... order by max_chats.last_activity_at` (SQLSTATE 42P10 в хост-приложении). Порядок в
     промежуточной выборке идентификаторов не нужен — финальная выборка моделей задаёт сортировку сама. Такие места
     проверяются тестом по исходному SQL (`DB::listen` и проверка на одновременное `distinct` и `order by`), а не
     прогоном на SQLite, по той же логике, что и gotcha 16.
@@ -532,6 +556,21 @@ docker compose exec -T app composer security-audit # composer audit
     `Stopped` (или станет им), и плагин не вмешивается — итоговое значение детерминировано, а чат и так скрыт из списка
     (лист показывает только `Active`). Тот же guard делает повторную доставку `dialog_removed` идемпотентной. Не
     ослабляйте его без анализа порядка регистрации слушателей у хоста.
+26. **`Http::fake()` с `sink` отдаёт тело один раз — второй скачивание в одном тесте получает пустой файл.**
+    `Http::response(...)` создаёт один promise с одним PSR-7 stream, а `PendingRequest::sinkStubHandler` на каждом
+    запросе читает его `getContents()` без rewind: первая загрузка пишет тело в sink, вторая — пустое, и
+    `MaxAttachmentStore::download()` отсекает файл по `size === 0`, возвращая `['type' => ...]` без имени и пути. В
+    проде каждый запрос приходит со своим телом, поэтому дефект виден только тесту со **двумя скачиваниями на одном
+    фейке** — раньше все тесты делали по одному скачиванию на фейк. Лечение: closure-форма
+    `Http::fake(fn () => Http::response(...))` — closure вызывается на каждый запрос и создаёт свежий response.
+27. **`getUrl()` страницы панели требует default-панель, и в тестах это маскируется под проблему моков.**
+    `Pages\OperatorChat::getUrl()` внутри зовёт `Filament::getPanel()`, а Filament v5 бросает
+    `NoDefaultPanelSetException`, если ни одна панель не помечена `->default()` — тестовая фикстура
+    `tests/Fixtures/AdminPanelProvider.php` без `->default()` давала падение на тесте отправки письма с ошибкой, которое
+    выглядело как конфликт `Facade::shouldReceive` (risky «did not remove its own error handlers», gotcha 9), а причина
+    была в исключении из `urlFor()` внутри команды. Сначала проверяй default-панель, потом моки. В проде требование
+    покрывается самим Filament: хост обязан пометить одну панель
+    `->default()`, иначе ссылка `chat_id` в email-дайджесте не соберётся.
 
 ## 11. Чек-лист перед завершением задачи
 

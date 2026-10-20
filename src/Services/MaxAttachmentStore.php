@@ -99,7 +99,7 @@ class MaxAttachmentStore
                 ? $this->download($attachment->payload->url, 'audio', 'audio', $maxBytes)
                 : ['type' => 'audio'],
             AttachmentType::File => $attachment->payload instanceof FileAttachmentPayload
-                ? $this->download($attachment->payload->url, 'file', 'file', $maxBytes)
+                ? $this->download($attachment->payload->url, 'file', 'file', $maxBytes, $attachment->filename)
                 : ['type' => 'file'],
             AttachmentType::Sticker => $this->stickerMetadata($attachment->payload, $maxBytes),
             AttachmentType::Contact => $this->contactMetadata($attachment->payload),
@@ -407,12 +407,13 @@ class MaxAttachmentStore
     /**
      * @return StoredAttachment
      */
-    private function download(?string $url, string $type, string $fallbackName, int $maxBytes): array
+    private function download(?string $url, string $type, string $fallbackName, int $maxBytes, ?string $fileName = null): array
     {
         if ($url === null || self::httpUrl($url) === null) {
             return ['type' => $type];
         }
 
+        $realName = $this->sanitizeFileName($fileName);
         $temporary = tempnam(sys_get_temp_dir(), 'chat-att-');
 
         try {
@@ -438,7 +439,8 @@ class MaxAttachmentStore
                 ? $sniffed
                 : $cdnMime;
 
-            $extension = $this->extensionFor($mime, $this->extensionFromUrl((string) $url));
+            $preferredExtension = $this->extensionFromFileName($realName) ?: $this->extensionFromUrl((string) $url);
+            $extension = $this->extensionFor($mime, $preferredExtension);
             if ($extension === '') {
                 $extension = $this->extensionForType($type);
             }
@@ -466,7 +468,7 @@ class MaxAttachmentStore
         return [
             'type' => $type,
             'path' => $path,
-            'name' => $this->nameFromUrl((string) $url) ?? ($fallbackName . '.' . $extension),
+            'name' => $realName ?? ($this->nameFromUrl((string) $url) ?? ($fallbackName . '.' . $extension)),
             'mime' => $mime,
             'size' => $size,
             'url' => $url,
@@ -542,6 +544,40 @@ class MaxAttachmentStore
         }
 
         return $name;
+    }
+
+    /**
+     * Настоящее имя файла из вебхука: спека MAX объявляет `filename`
+     * обязательным полем файла, а до v1.1.11 ядро его не отдавало — имя
+     * приходилось угадывать из URL скачивания, и под служебным `getfile`
+     * оператор видел мусор. Значение — только метаданные карточки (Blade
+     * экранирует его), путь хранения строится из UUID: тем не менее отрезаются
+     * компоненты пути, управляющие символы и значения из одних точек.
+     */
+    private function sanitizeFileName(?string $value): ?string
+    {
+        $value = $this->stringValue($value);
+
+        if ($value === null) {
+            return null;
+        }
+
+        $name = basename(str_replace('\\', '/', $value));
+        $name = preg_replace('/[\x00-\x1F\x7F]/', '', $name) ?? '';
+        $name = trim($name);
+
+        if ($name === '' || trim($name, '.') === '') {
+            return null;
+        }
+
+        return $this->limit($name, self::MAX_NAME_LENGTH);
+    }
+
+    private function extensionFromFileName(?string $fileName): string
+    {
+        $extension = $fileName === null ? '' : strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+
+        return preg_match('/^[a-z0-9]{1,8}$/', $extension) === 1 ? $extension : '';
     }
 
     private function typeForMime(string $mime): string
