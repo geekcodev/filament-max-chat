@@ -84,4 +84,13 @@ return [
     'close' => 'Close',
 
     'search_placeholder' => 'Search…',
+
+    'mail' => [
+        'subject' => 'Unread messages in MAX chats',
+        'heading' => 'Unread messages in MAX chats',
+        'intro' => 'The following chats contain incoming messages the operator has not read:',
+        'unread_count' => 'Unread messages: :count',
+        'open' => 'Open chat',
+        'footer' => 'This email was sent automatically — no reply is needed.',
+    ],
 ];

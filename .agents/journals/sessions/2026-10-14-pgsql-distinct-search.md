@@ -7,7 +7,7 @@ date: 2026-10-14
 
 ## Проблема
 
-В i2tech при поиске по диалогам страница падала с `SQLSTATE[42P10]`: PostgreSQL требует, чтобы выражения в
+В хост-приложении при поиске по диалогам страница падала с `SQLSTATE[42P10]`: PostgreSQL требует, чтобы выражения в
 `ORDER BY` при `SELECT DISTINCT` присутствовали в select list. Запрос первой фазы поиска выбирал
 `distinct max_chats.chat_id`, но сортировал по `max_chats.last_activity_at`, которого в выборке нет.
 `searchConversations()` в `MaxMessageService` (строка с `orderByDesc('max_chats.last_activity_at')` перед
