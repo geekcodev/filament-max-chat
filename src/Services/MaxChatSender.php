@@ -6,9 +6,12 @@ namespace GeekCo\FilamentMaxChat\Services;
 
 use GeekCo\MaxPhpClient\ApiClient;
 use GeekCo\MaxPhpClient\Dto\AttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\InlineKeyboardButton;
+use GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow;
 use GeekCo\MaxPhpClient\Dto\NewMessageBody;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use GeekCo\MaxPhpClient\Enum\AttachmentType;
+use GeekCo\MaxPhpClient\Enum\ButtonType;
 use GeekCo\MaxPhpClient\Enum\TextFormat;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Illuminate\Support\Facades\Log;
@@ -67,6 +70,25 @@ class MaxChatSender
     public function deleteMessage(string $messageId): void
     {
         $this->api->deleteMessage($messageId);
+    }
+
+    /**
+     * Sends an inline keyboard with a request_contact button.
+     */
+    public function sendRequestContact(Recipient $recipient, string $buttonText = 'Поделиться контактом', ?string $text = null): void
+    {
+        $button = new InlineKeyboardButton(type: ButtonType::RequestContact, text: $buttonText);
+        $row = new InlineKeyboardButtonRow([$button]);
+        $attachment = AttachmentRequest::create(AttachmentType::InlineKeyboard, rows: [$row]);
+
+        $this->api->sendMessage(
+            recipient: $recipient,
+            body: NewMessageBody::create(
+                text: $text,
+                attachments: [$attachment],
+                format: $text !== null && $text !== '' ? TextFormat::Html : null,
+            ),
+        );
     }
 
     private function uploadToAttachment(UploadType $type, string $absolutePath): AttachmentRequest
