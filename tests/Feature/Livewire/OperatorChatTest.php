@@ -1341,4 +1341,209 @@ class OperatorChatTest extends TestCase
             'text' => $text,
         ]);
     }
+
+    public function test_request_contact_sends_inline_keyboard_and_stores_outgoing(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        $this->mock(MaxChatSender::class)
+            ->shouldReceive('sendRequestContact')
+            ->once()
+            ->with(
+                Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222 && $recipient->userId === 111),
+                __('filament-max-chat::chat.request_contact_button'),
+            );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('requestContact')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('max_chat_messages', [
+            'max_chat_id' => $chat->chat_id,
+            'direction' => MaxMessageDirection::Out->value,
+            'sender_type' => MaxMessageSender::Operator->value,
+            'text' => __('filament-max-chat::chat.request_contact_button'),
+            'operator_id' => $staff->id,
+        ]);
+    }
+
+    public function test_request_contact_uses_custom_button_text(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        $this->mock(MaxChatSender::class)
+            ->shouldReceive('sendRequestContact')
+            ->once()
+            ->with(Mockery::any(), 'Отправьте номер');
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('requestContact', 'Отправьте номер')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('max_chat_messages', [
+            'max_chat_id' => $chat->chat_id,
+            'text' => 'Отправьте номер',
+        ]);
+    }
+
+    public function test_request_contact_requires_answer_permission(): void
+    {
+        $user = $this->createUser(canView: true);
+        $chat = $this->createChat();
+
+        $this->mock(MaxChatSender::class)->shouldReceive('sendRequestContact')->never();
+
+        Livewire::actingAs($user)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('requestContact')
+            ->assertForbidden();
+    }
+
+    public function test_request_contact_failure_shows_error_and_does_not_store(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        $this->mock(MaxChatSender::class)
+            ->shouldReceive('sendRequestContact')
+            ->once()
+            ->andThrow(new RuntimeException('boom'));
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('requestContact')
+            ->assertHasErrors(['reply']);
+
+        $this->assertDatabaseMissing('max_chat_messages', [
+            'max_chat_id' => $chat->chat_id,
+            'direction' => MaxMessageDirection::Out->value,
+        ]);
+    }
+
+    public function test_request_contact_without_active_chat_does_nothing(): void
+    {
+        $staff = $this->createStaff();
+
+        $this->mock(MaxChatSender::class)->shouldReceive('sendRequestContact')->never();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class)
+            ->call('requestContact')
+            ->assertHasNoErrors();
+    }
+
+    public function test_header_actions_resolve_callable_with_chat_context(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        config()->set('filament-max-chat.actions.header', [
+            [
+                'label' => 'Создать заявку',
+                'url' => static fn (?MaxChat $context, $chatUser): string => 'https://example.test/leads?chat_id='
+                    .($context instanceof MaxChat ? (string) $context->chat_id : ''),
+                'visible' => static fn (?MaxChat $context): bool => $context instanceof MaxChat,
+                'permission' => 'chat.view',
+            ],
+        ]);
+
+        $component = Livewire::actingAs($staff)->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $actions = $instance->headerActions();
+
+        $this->assertCount(1, $actions);
+        $this->assertSame('Создать заявку', $actions[0]['label']);
+
+        $url = $actions[0]['url'];
+        $this->assertIsString($url);
+        $this->assertStringContainsString((string) $chat->chat_id, $url);
+    }
+
+    public function test_actions_are_hidden_by_failed_permission(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        config()->set('filament-max-chat.actions.header', [
+            [
+                'label' => 'Секрет',
+                'url' => 'https://example.test/secret',
+                'permission' => 'nonexistent.permission',
+            ],
+        ]);
+
+        $component = Livewire::actingAs($staff)->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $this->assertSame([], $instance->headerActions());
+    }
+
+    public function test_actions_are_hidden_by_false_visible(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        config()->set('filament-max-chat.actions.formatting', [
+            [
+                'label' => 'Скрыто',
+                'url' => 'https://example.test/hidden',
+                'visible' => false,
+            ],
+        ]);
+
+        $component = Livewire::actingAs($staff)->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $this->assertSame([], $instance->formattingActions());
+    }
+
+    public function test_actions_skip_empty_null_and_non_array_values(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        config()->set('filament-max-chat.actions.header', [
+            'not-an-array',
+            ['label' => 'Пустой url', 'url' => ''],
+            ['label' => 'Null url', 'url' => static fn (): mixed => null],
+            ['label' => 'Без url'],
+        ]);
+
+        $component = Livewire::actingAs($staff)->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $actions = $instance->headerActions();
+
+        $this->assertCount(1, $actions);
+        $this->assertSame('Без url', $actions[0]['label']);
+        $this->assertSame('#', $actions[0]['url']);
+    }
+
+    public function test_actions_config_not_array_yields_empty_list(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        config()->set('filament-max-chat.actions.header', 'broken');
+
+        $component = Livewire::actingAs($staff)->test(OperatorChat::class, ['chat' => $chat->chat_id]);
+
+        /** @var OperatorChat $instance */
+        $instance = $component->instance();
+
+        $this->assertSame([], $instance->headerActions());
+    }
 }

@@ -336,4 +336,14 @@ class MaxChatSenderTest extends TestCase
 
         $this->expectNotToPerformAssertions();
     }
+
+    #[Test]
+    public function send_request_contact_without_caption_uses_no_html_format(): void
+    {
+        $sender = $this->createSenderWithResponses([self::messageResponse()]);
+
+        $sender->sendRequestContact(new Recipient(chatId: 1, userId: 2));
+
+        $this->expectNotToPerformAssertions();
+    }
 }
