@@ -14,17 +14,30 @@ use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Http\Message\RequestInterface;
 
 /**
  * @phpstan-type ResponseQueue list<Response>
  */
 class MaxChatSenderTest extends TestCase
 {
-    /** @param ResponseQueue $responses */
-    private function createSenderWithResponses(array $responses): MaxChatSender
+    /**
+     * @param ResponseQueue $responses
+     * @param \ArrayObject<int, RequestInterface>|null $requests
+     */
+    private function createSenderWithResponses(array $responses, ?\ArrayObject $requests = null): MaxChatSender
     {
         $mock = new MockHandler($responses);
         $handler = HandlerStack::create($mock);
+        if ($requests !== null) {
+            $handler->push(static function (callable $next) use ($requests): callable {
+                return static function (RequestInterface $request, array $options) use ($next, $requests) {
+                    $requests->append($request);
+
+                    return $next($request, $options);
+                };
+            });
+        }
         $httpClient = new Client(['handler' => $handler]);
 
         $api = ApiClient::create(
@@ -338,12 +351,54 @@ class MaxChatSenderTest extends TestCase
     }
 
     #[Test]
-    public function send_request_contact_without_caption_uses_no_html_format(): void
+    public function send_request_contact_without_text_uses_button_caption_as_message_text(): void
     {
-        $sender = $this->createSenderWithResponses([self::messageResponse()]);
+        $requests = new \ArrayObject();
+        $sender = $this->createSenderWithResponses([self::messageResponse()], $requests);
 
         $sender->sendRequestContact(new Recipient(chatId: 1, userId: 2));
 
-        $this->expectNotToPerformAssertions();
+        $this->assertSame([
+            'text' => 'Поделиться контактом',
+            'attachments' => [[
+                'type' => 'inline_keyboard',
+                'payload' => ['buttons' => [[['type' => 'request_contact', 'text' => 'Поделиться контактом']]]],
+            ]],
+        ], $this->sentBody($requests));
+    }
+
+    #[Test]
+    public function send_request_contact_sends_html_text_and_button_caption(): void
+    {
+        $requests = new \ArrayObject();
+        $sender = $this->createSenderWithResponses([self::messageResponse()], $requests);
+
+        $sender->sendRequestContact(new Recipient(chatId: 1, userId: 2), 'Отправить', '<b>Номер</b>');
+
+        $this->assertSame([
+            'text' => '<b>Номер</b>',
+            'attachments' => [[
+                'type' => 'inline_keyboard',
+                'payload' => ['buttons' => [[['type' => 'request_contact', 'text' => 'Отправить']]]],
+            ]],
+            'format' => 'html',
+        ], $this->sentBody($requests));
+    }
+
+    /**
+     * @param \ArrayObject<int, RequestInterface> $requests
+     * @return array<string, mixed>
+     */
+    private function sentBody(\ArrayObject $requests): array
+    {
+        $request = $requests[0];
+        assert($request instanceof RequestInterface);
+        $stream = $request->getBody();
+        $stream->rewind();
+
+        /** @var array<string, mixed> $body */
+        $body = json_decode((string) $stream, true, 512, JSON_THROW_ON_ERROR);
+
+        return $body;
     }
 }

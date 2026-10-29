@@ -369,12 +369,13 @@ class OperatorChat extends Component
         $chat = $chatModel::query()->with('chatUsers.maxUser')->findOrFail($this->activeChatId);
         $recipient = new Recipient(chatId: $chat->chat_id, userId: $chat->interlocutorId());
 
-        $text = $buttonText !== null && $buttonText !== ''
+        $caption = $buttonText !== null && $buttonText !== ''
             ? $buttonText
             : __('filament-max-chat::chat.request_contact_button');
+        $text = __('filament-max-chat::chat.request_contact_prompt');
 
         try {
-            app(MaxChatSender::class)->sendRequestContact($recipient, $text);
+            app(MaxChatSender::class)->sendRequestContact($recipient, $caption, $text);
         } catch (Throwable $exception) {
             Log::error('Operator chat: failed to send request_contact to MAX.', [
                 'chat_id' => $chat->chat_id,

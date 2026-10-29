@@ -15,20 +15,18 @@
 ```php
 use GeekCo\FilamentMaxChat\Services\MaxChatSender;
 use GeekCo\MaxPhpClient\Dto\Recipient;
-use GeekCo\MaxPhpClient\Dto\AttachmentRequest;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButton;
-use GeekCo\MaxPhpClient\Enum\AttachmentType;
-use GeekCo\MaxPhpClient\Enum\ButtonType;
 
-$recipient = new Recipient(chatId: $chatId);
-$button = new InlineKeyboardButton(type: ButtonType::RequestContact, text: 'Поделиться контактом');
-$row = new InlineKeyboardButtonRow([$button]);
-$attachment = AttachmentRequest::create(AttachmentType::InlineKeyboard, rows: [$row]);
+$recipient = new Recipient(chatId: $chatId, userId: $userId);
 
-app(MaxChatSender::class)->sendAttachments($recipient, [], [], null, [$attachment]);
-// Или добавить метод sendRequestContact() - см. реализацию в пакете
+app(MaxChatSender::class)->sendRequestContact(
+    recipient: $recipient,
+    buttonText: 'Поделиться контактом',
+    text: 'Пожалуйста, поделитесь контактом.',
+);
 ```
+
+Сообщение с клавиатурой без текста MAX отклоняет (`errors.required`). Если `text` не передан, в качестве текста
+сообщения уходит подпись кнопки.
 
 ## Через Livewire компонент
 
