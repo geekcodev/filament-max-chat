@@ -73,20 +73,22 @@ class MaxChatSender
     }
 
     /**
-     * Sends an inline keyboard with a request_contact button.
+     * Sends an inline keyboard with a request_contact button. MAX rejects a keyboard message
+     * without text (errors.required), so when no text is given the button caption is used.
      */
     public function sendRequestContact(Recipient $recipient, string $buttonText = 'Поделиться контактом', ?string $text = null): void
     {
         $button = new InlineKeyboardButton(type: ButtonType::RequestContact, text: $buttonText);
         $row = new InlineKeyboardButtonRow([$button]);
         $attachment = AttachmentRequest::create(AttachmentType::InlineKeyboard, rows: [$row]);
+        $hasText = $text !== null && $text !== '';
 
         $this->api->sendMessage(
             recipient: $recipient,
             body: NewMessageBody::create(
-                text: $text,
+                text: $hasText ? $text : $buttonText,
                 attachments: [$attachment],
-                format: $text !== null && $text !== '' ? TextFormat::Html : null,
+                format: $hasText ? TextFormat::Html : null,
             ),
         );
     }

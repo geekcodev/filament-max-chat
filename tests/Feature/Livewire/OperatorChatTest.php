@@ -1353,6 +1353,7 @@ class OperatorChatTest extends TestCase
             ->with(
                 Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222 && $recipient->userId === 111),
                 __('filament-max-chat::chat.request_contact_button'),
+                __('filament-max-chat::chat.request_contact_prompt'),
             );
 
         Livewire::actingAs($staff)
@@ -1364,7 +1365,7 @@ class OperatorChatTest extends TestCase
             'max_chat_id' => $chat->chat_id,
             'direction' => MaxMessageDirection::Out->value,
             'sender_type' => MaxMessageSender::Operator->value,
-            'text' => __('filament-max-chat::chat.request_contact_button'),
+            'text' => __('filament-max-chat::chat.request_contact_prompt'),
             'operator_id' => $staff->id,
         ]);
     }
@@ -1377,7 +1378,7 @@ class OperatorChatTest extends TestCase
         $this->mock(MaxChatSender::class)
             ->shouldReceive('sendRequestContact')
             ->once()
-            ->with(Mockery::any(), 'Отправьте номер');
+            ->with(Mockery::any(), 'Отправьте номер', __('filament-max-chat::chat.request_contact_prompt'));
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat' => $chat->chat_id])
@@ -1386,7 +1387,7 @@ class OperatorChatTest extends TestCase
 
         $this->assertDatabaseHas('max_chat_messages', [
             'max_chat_id' => $chat->chat_id,
-            'text' => 'Отправьте номер',
+            'text' => __('filament-max-chat::chat.request_contact_prompt'),
         ]);
     }
 

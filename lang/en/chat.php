@@ -87,6 +87,7 @@ return [
 
     'request_contact' => 'Request contact',
     'request_contact_button' => 'Share contact',
+    'request_contact_prompt' => 'Please share your contact.',
 
     'mail' => [
         'subject' => 'Unread messages in MAX chats',

@@ -87,6 +87,7 @@ return [
 
     'request_contact' => 'Запросить контакт',
     'request_contact_button' => 'Поделиться контактом',
+    'request_contact_prompt' => 'Пожалуйста, поделитесь контактом.',
 
     'mail' => [
         'subject' => 'Непрочитанные сообщения в чатах MAX',
