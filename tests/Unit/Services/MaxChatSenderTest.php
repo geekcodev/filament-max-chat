@@ -322,4 +322,28 @@ class MaxChatSenderTest extends TestCase
         @unlink($tmpB);
         $this->expectNotToPerformAssertions();
     }
+
+    #[Test]
+    public function send_request_contact_sends_inline_keyboard(): void
+    {
+        $sender = $this->createSenderWithResponses([self::messageResponse()]);
+
+        $sender->sendRequestContact(
+            new Recipient(chatId: 1, userId: 2),
+            'Поделиться контактом',
+            'Пожалуйста, поделитесь контактом',
+        );
+
+        $this->expectNotToPerformAssertions();
+    }
+
+    #[Test]
+    public function send_request_contact_without_caption_uses_no_html_format(): void
+    {
+        $sender = $this->createSenderWithResponses([self::messageResponse()]);
+
+        $sender->sendRequestContact(new Recipient(chatId: 1, userId: 2));
+
+        $this->expectNotToPerformAssertions();
+    }
 }

@@ -353,6 +353,49 @@ class OperatorChat extends Component
         $this->loadMessages();
     }
 
+    public function requestContact(?string $buttonText = null): void
+    {
+        $user = auth()->user();
+
+        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+
+        if ($this->activeChatId === null) {
+            return;
+        }
+
+        /** @var class-string<MaxChat> $chatModel */
+        $chatModel = config()->string('filament-max-chat.chat_model');
+
+        $chat = $chatModel::query()->with('chatUsers.maxUser')->findOrFail($this->activeChatId);
+        $recipient = new Recipient(chatId: $chat->chat_id, userId: $chat->interlocutorId());
+
+        $text = $buttonText !== null && $buttonText !== ''
+            ? $buttonText
+            : __('filament-max-chat::chat.request_contact_button');
+
+        try {
+            app(MaxChatSender::class)->sendRequestContact($recipient, $text);
+        } catch (Throwable $exception) {
+            Log::error('Operator chat: failed to send request_contact to MAX.', [
+                'chat_id' => $chat->chat_id,
+                'error' => $exception->getMessage(),
+            ]);
+            $this->addError('reply', __('filament-max-chat::chat.send_failed'));
+
+            return;
+        }
+
+        $this->service?->storeOutgoing(
+            userId: $chat->interlocutorId(),
+            chatId: $chat->chat_id,
+            text: $text,
+            sender: MaxMessageSender::Operator,
+            operatorId: is_numeric($user->getAuthIdentifier()) ? (int) $user->getAuthIdentifier() : null,
+        );
+
+        $this->loadMessages();
+    }
+
     #[On('chat-refresh')]
     public function refresh(): void
     {
@@ -503,5 +546,103 @@ class OperatorChat extends Component
         $prefetch = (string) config()->string('filament-max-chat.profile.prefetch', 'both');
 
         return $prefetch === 'both' || $prefetch === $trigger;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    #[Computed]
+    public function headerActions(): array
+    {
+        return $this->resolveActions('header');
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    #[Computed]
+    public function formattingActions(): array
+    {
+        return $this->resolveActions('formatting');
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function resolveActions(string $type): array
+    {
+        $actions = config("filament-max-chat.actions.{$type}", []);
+
+        if (! is_array($actions)) {
+            return [];
+        }
+
+        $chat = $this->activeConversation();
+        /** @var \GeekCo\LaravelMaxClient\Models\MaxUser|null $chatUser */
+        $chatUser = $chat !== null ? $chat->interlocutor() : null;
+
+        /** @var list<array<string, mixed>> $result */
+        $result = [];
+
+        foreach ($actions as $action) {
+            if (! is_array($action)) {
+                continue;
+            }
+
+            /** @var array<string, mixed> $actionArray */
+            $actionArray = $action;
+
+            if (array_key_exists('visible', $actionArray)) {
+                $visible = $actionArray['visible'];
+
+                if (is_callable($visible)) {
+                    $visible = $visible($chat, $chatUser, $this);
+                }
+
+                if ($visible === false) {
+                    continue;
+                }
+            }
+
+            if (array_key_exists('permission', $actionArray)) {
+                $permission = $actionArray['permission'];
+
+                if (is_string($permission) && $permission !== '') {
+                    $user = auth()->user();
+
+                    if ($user === null || ! $user->can($permission)) {
+                        continue;
+                    }
+                }
+            }
+
+            if (array_key_exists('url', $actionArray)) {
+                $url = $actionArray['url'];
+
+                if (is_callable($url)) {
+                    $url = $url($chat, $chatUser, $this);
+                }
+
+                if (is_null($url)) {
+                    continue;
+                }
+
+                if (is_string($url)) {
+                    if ($url === '') {
+                        continue;
+                    }
+
+                    $actionArray['url'] = $url;
+                } else {
+                    $actionArray['url'] = is_scalar($url) ? (string) $url : '#';
+                }
+            } else {
+                $actionArray['url'] = '#';
+            }
+
+            $result[] = $actionArray;
+        }
+
+        return $result;
     }
 }

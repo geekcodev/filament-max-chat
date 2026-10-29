@@ -144,6 +144,30 @@
                 </div>
                 @if ($this->canAnswer)
                     <div class="flex shrink-0 items-center gap-1">
+                        @stack('filament-max-chat.header-actions-start')
+                        @foreach ($this->headerActions as $action)
+                            @php($actionUrl = $action['url'] ?? '#')
+                            @php($actionLabel = $action['label'] ?? '')
+                            @php($actionIcon = $action['icon'] ?? null)
+                            @php($openNewTab = $action['open_new_tab'] ?? false)
+                            @php($actionTitle = $action['title'] ?? $actionLabel)
+                            @php($actionClass = $action['class'] ?? 'shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-gray-100 dark:text-white dark:hover:bg-white/10')
+                            @php($actionPermission = $action['permission'] ?? null)
+                            @if ($actionPermission === null || auth()->user()?->can($actionPermission))
+                                <a
+                                    href="{{ $actionUrl }}"
+                                    @if($openNewTab) target="_blank" rel="noopener noreferrer" @endif
+                                    class="{{ $actionClass }}"
+                                    title="{{ $actionTitle }}"
+                                >
+                                    @if (is_string($actionIcon) && $actionIcon !== '')
+                                        <x-dynamic-component :component="$actionIcon" class="h-5 w-5" />
+                                    @elseif (filled($actionLabel))
+                                        <span class="px-1.5 text-sm">{{ $actionLabel }}</span>
+                                    @endif
+                                </a>
+                            @endif
+                        @endforeach
                         <button
                             type="button"
                             wire:click="removeChat"
@@ -162,6 +186,7 @@
                         >
                             <x-heroicon-o-trash class="h-5 w-5" />
                         </button>
+                        @stack('filament-max-chat.header-actions')
                     </div>
                 @endif
             </div>
@@ -317,6 +342,42 @@
                 @if ($this->canAnswer)
                     <form wire:submit="sendReply" class="space-y-2" x-data="fmcReplyEditor()">
                         <div class="flex flex-wrap items-center gap-1">
+                            @stack('filament-max-chat.formatting-actions-start')
+                            @php($formatChat = $activeChat)
+                            @php($formatChatUser = $formatChat?->interlocutor())
+                            @if ($this->canAnswer && $formatChatUser !== null && blank($formatChatUser->phone))
+                                <button
+                                    type="button"
+                                    wire:click="requestContact"
+                                    class="h-7 rounded-md border border-gray-300 px-2 text-xs text-gray-700 hover:bg-gray-100 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/10"
+                                    title="{{ __('filament-max-chat::chat.request_contact') }}"
+                                >
+                                    {{ __('filament-max-chat::chat.request_contact') }}
+                                </button>
+                            @endif
+                            @foreach ($this->formattingActions as $action)
+                                @php($actionUrl = $action['url'] ?? '#')
+                                @php($actionLabel = $action['label'] ?? '')
+                                @php($actionIcon = $action['icon'] ?? null)
+                                @php($openNewTab = $action['open_new_tab'] ?? false)
+                                @php($actionTitle = $action['title'] ?? $actionLabel)
+                                @php($actionClass = $action['class'] ?? 'h-7 min-w-7 rounded-md border border-gray-300 px-1.5 text-xs text-gray-700 hover:bg-gray-100 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/10')
+                                @php($actionPermission = $action['permission'] ?? null)
+                                @if ($actionPermission === null || auth()->user()?->can($actionPermission))
+                                    <a
+                                        href="{{ $actionUrl }}"
+                                        @if($openNewTab) target="_blank" rel="noopener noreferrer" @endif
+                                        class="{{ $actionClass }}"
+                                        title="{{ $actionTitle }}"
+                                    >
+                                        @if (is_string($actionIcon) && $actionIcon !== '')
+                                            <x-dynamic-component :component="$actionIcon" class="h-4 w-4" />
+                                        @elseif (filled($actionLabel))
+                                            {{ $actionLabel }}
+                                        @endif
+                                    </a>
+                                @endif
+                            @endforeach
                             @foreach ([
                                 [__('filament-max-chat::chat.format_bold'), '<b>', '</b>', 'font-bold'],
                                 [__('filament-max-chat::chat.format_italic'), '<i>', '</i>', 'italic'],
@@ -365,6 +426,7 @@
                                     {{ __('filament-max-chat::chat.source_toggle') }}
                                 </span>
                             </button>
+                            @stack('filament-max-chat.formatting-actions')
                         </div>
 
                         <textarea
@@ -450,10 +512,12 @@
                                 <p class="text-sm text-danger-600">{{ $message }}</p>
                             @enderror
                         </div>
+                        @stack('filament-max-chat.reply-footer')
                     </form>
                 @else
                     <p class="text-center text-sm text-gray-500">{{ __('filament-max-chat::chat.no_answer_permission') }}</p>
                 @endif
+                @stack('filament-max-chat.chat-footer')
             </div>
         @endif
     </div>

@@ -85,6 +85,9 @@ return [
 
     'search_placeholder' => 'Поиск…',
 
+    'request_contact' => 'Запросить контакт',
+    'request_contact_button' => 'Поделиться контактом',
+
     'mail' => [
         'subject' => 'Непрочитанные сообщения в чатах MAX',
         'heading' => 'Непрочитанные сообщения в чатах MAX',

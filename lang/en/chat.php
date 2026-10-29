@@ -85,6 +85,9 @@ return [
 
     'search_placeholder' => 'Search…',
 
+    'request_contact' => 'Request contact',
+    'request_contact_button' => 'Share contact',
+
     'mail' => [
         'subject' => 'Unread messages in MAX chats',
         'heading' => 'Unread messages in MAX chats',
