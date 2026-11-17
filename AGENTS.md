@@ -30,16 +30,11 @@
 `composer show geekcodev/max-php-client` (по одному пакету за раз: два аргумента `composer show` не принимает), релизные
 теги — `git tag --sort=-v:refname` здесь и в соседних `../laravel-max-client`, `../max-php-client`.
 
-Constraint `geekcodev/laravel-max-client: ^1.2.3` в `composer.json` — намеренно жёсткий: код плагина, миграции и тесты
-рассчитаны на форму реестра 1.2 (`max_chats.chat_id` — первичный ключ, связи в `max_chat_users`, §5 «Схема v1.2.0
-реестра»), а несовместимость с 1.1.x — ломающий переход, а не случайность. История порога: форма реестра — в 1.2.0,
-полоса миграций `0000_00` — в 1.2.1 (в 1.2.0 ещё `0001_01_01_*`, и плагин в `0000_02` встаёт перед адаптером), подписка
-webhook на нужные плагину типы апдейтов — в 1.2.2 (gotcha 21, 24), а `1.2.3` — минимальная версия, синхронизированная с
-ядром `max-php-client` ^1.1.11 (толерантный разбор nullable-`hash` входящего контакта). Но
-`composer.lock` не коммитится, поэтому фактически установленную версию всегда сверяй по `composer show`, а не по
-constraint в файле: расхождение даёт красный Gate (PHPStan, тесты). Release notes перехода —
-`.agents/release/RELEASE_NOTES_v1.1.0.md`, порядок обновления существующей установки — §5 и README «Обновление с v1.0.x
-на v1.1.0».
+Целевые constraints — `geekcodev/laravel-max-client: ^2.0` и `geekcodev/max-php-client: ^2.0` (типизированные события
+MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ставит обе зависимости как `dev-new` из Packagist; path-repositories
+не используются. Фактически установленную версию всегда сверяй `composer show geekcodev/laravel-max-client` и
+`composer show geekcodev/max-php-client`: расхождение даёт красный Gate (PHPStan, тесты). Release notes перехода на
+типизированную модель — `.agents/release/RELEASE_NOTES_v2.0.0.md`.
 
 ### Регрессии не чиним в стороннем проекте
 

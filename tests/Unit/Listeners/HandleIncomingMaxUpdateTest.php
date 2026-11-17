@@ -8,8 +8,19 @@ use GeekCo\FilamentMaxChat\Listeners\HandleIncomingMaxUpdate;
 use GeekCo\FilamentMaxChat\Services\MaxMessageService;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Webhook\MaxUpdateReceived;
-use GeekCo\MaxPhpClient\Dto\Update;
-use GeekCo\MaxPhpClient\Enum\UpdateType;
+use GeekCo\MaxPhpClient\Dto\Callback;
+use GeekCo\MaxPhpClient\Dto\Message;
+use GeekCo\MaxPhpClient\Dto\MessageBody;
+use GeekCo\MaxPhpClient\Dto\Recipient;
+use GeekCo\MaxPhpClient\Dto\Update\BotAddedToChatUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\ChatTitleChangedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\DialogClearedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\DialogRemovedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageCallbackUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageCreatedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageEditedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageRemovedUpdate;
+use GeekCo\MaxPhpClient\Dto\User;
 use Mockery\MockInterface;
 
 class HandleIncomingMaxUpdateTest extends TestCase
@@ -21,7 +32,7 @@ class HandleIncomingMaxUpdateTest extends TestCase
         $this->onlyHistoryCalled($service, 'storeIncoming');
 
         $listener = new HandleIncomingMaxUpdate($service);
-        $listener->handle($this->receivedUpdate(UpdateType::MessageCreated));
+        $listener->handle($this->receivedUpdate('message_created'));
     }
 
     public function test_edited_update_is_applied(): void
@@ -31,7 +42,7 @@ class HandleIncomingMaxUpdateTest extends TestCase
         $this->onlyHistoryCalled($service, 'applyIncomingEdit');
 
         $listener = new HandleIncomingMaxUpdate($service);
-        $listener->handle($this->receivedUpdate(UpdateType::MessageEdited));
+        $listener->handle($this->receivedUpdate('message_edited'));
     }
 
     public function test_removed_update_is_applied(): void
@@ -41,7 +52,7 @@ class HandleIncomingMaxUpdateTest extends TestCase
         $this->onlyHistoryCalled($service, 'applyIncomingRemoval');
 
         $listener = new HandleIncomingMaxUpdate($service);
-        $listener->handle($this->receivedUpdate(UpdateType::MessageRemoved));
+        $listener->handle($this->receivedUpdate('message_removed'));
     }
 
     public function test_cleared_update_is_applied(): void
@@ -51,7 +62,7 @@ class HandleIncomingMaxUpdateTest extends TestCase
         $this->onlyHistoryCalled($service, 'applyIncomingClear');
 
         $listener = new HandleIncomingMaxUpdate($service);
-        $listener->handle($this->receivedUpdate(UpdateType::DialogCleared));
+        $listener->handle($this->receivedUpdate('dialog_cleared'));
     }
 
     public function test_removed_chat_update_is_applied(): void
@@ -61,7 +72,7 @@ class HandleIncomingMaxUpdateTest extends TestCase
         $this->onlyHistoryCalled($service, 'applyIncomingChatRemoval');
 
         $listener = new HandleIncomingMaxUpdate($service);
-        $listener->handle($this->receivedUpdate(UpdateType::DialogRemoved));
+        $listener->handle($this->receivedUpdate('dialog_removed'));
     }
 
     public function test_title_change_update_is_applied(): void
@@ -71,7 +82,7 @@ class HandleIncomingMaxUpdateTest extends TestCase
         $this->onlyHistoryCalled($service, 'applyIncomingTitle');
 
         $listener = new HandleIncomingMaxUpdate($service);
-        $listener->handle($this->receivedUpdate(UpdateType::ChatTitleChanged));
+        $listener->handle($this->receivedUpdate('chat_title_changed'));
     }
 
     /**
@@ -84,7 +95,7 @@ class HandleIncomingMaxUpdateTest extends TestCase
         $this->onlyHistoryCalled($service);
 
         $listener = new HandleIncomingMaxUpdate($service);
-        $listener->handle($this->receivedUpdate(UpdateType::MessageCallback));
+        $listener->handle($this->receivedUpdate('message_callback'));
     }
 
     public function test_unrelated_update_is_ignored(): void
@@ -93,7 +104,7 @@ class HandleIncomingMaxUpdateTest extends TestCase
         $this->onlyHistoryCalled($service);
 
         $listener = new HandleIncomingMaxUpdate($service);
-        $listener->handle($this->receivedUpdate(UpdateType::BotAdded));
+        $listener->handle($this->receivedUpdate('bot_added'));
     }
 
     /**
@@ -120,13 +131,46 @@ class HandleIncomingMaxUpdateTest extends TestCase
         }
     }
 
-    private function receivedUpdate(UpdateType $type): MaxUpdateReceived
+    private function receivedUpdate(string $type): MaxUpdateReceived
     {
-        return new MaxUpdateReceived(new Update(
-            updateType: $type,
+        $user = new User(userId: 111, firstName: 'Иван', lastName: null, username: null, isBot: false);
+
+        $update = match ($type) {
+            'message_created' => new MessageCreatedUpdate(timestamp: 1000, message: $this->message($user)),
+            'message_edited' => new MessageEditedUpdate(timestamp: 1000, message: $this->message($user)),
+            'message_removed' => new MessageRemovedUpdate(
+                timestamp: 1000,
+                chatId: 222,
+                messageId: 'm-1',
+                userId: 111,
+            ),
+            'message_callback' => new MessageCallbackUpdate(
+                timestamp: 1000,
+                callback: new Callback(callbackId: 'cb-1', user: $user),
+                message: $this->message($user),
+            ),
+            'dialog_cleared' => new DialogClearedUpdate(timestamp: 1000, chatId: 222, user: $user),
+            'dialog_removed' => new DialogRemovedUpdate(timestamp: 1000, chatId: 222, user: $user),
+            'chat_title_changed' => new ChatTitleChangedUpdate(
+                timestamp: 1000,
+                chatId: 222,
+                user: $user,
+                title: 'Название группы',
+            ),
+            'bot_added' => new BotAddedToChatUpdate(timestamp: 1000, chatId: 222, user: $user, isChannel: false),
+            default => throw new \LogicException(sprintf('Unsupported update type in test: %s', $type)),
+        };
+
+        return new MaxUpdateReceived($update);
+    }
+
+    private function message(User $user): Message
+    {
+        return new Message(
+            sender: $user,
+            recipient: new Recipient(chatId: 222, userId: 111),
             timestamp: 1000,
-            chatId: 222,
-            title: $type === UpdateType::ChatTitleChanged ? 'Название группы' : null,
-        ));
+            body: new MessageBody(mid: 'm-1', seq: 1, text: 'Текст'),
+        );
     }
 }

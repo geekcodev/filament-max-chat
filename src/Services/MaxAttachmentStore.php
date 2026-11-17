@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxChat\Services;
 
 use GeekCo\MaxPhpClient\Dto\Attachment;
-use GeekCo\MaxPhpClient\Dto\AudioAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\Attachment\AudioAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\ContactAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\FileAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\InlineKeyboardAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\LocationAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\PhotoAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\ShareAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\StickerAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\VideoAttachment;
 use GeekCo\MaxPhpClient\Dto\ContactAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\FileAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\ImageAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\LocationAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\VideoAttachmentPayload;
-use GeekCo\MaxPhpClient\Enum\AttachmentType;
+use GeekCo\MaxPhpClient\Dto\Keyboard;
 use GeekCo\MaxPhpClient\Security\ContactPhoneExtractor;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -80,32 +83,43 @@ class MaxAttachmentStore
     }
 
     /**
-     * Метаданные одного вложения. `match` перечисляет все типы `AttachmentType`
-     * без `default`: добавление нового типа в ядро снова упрётся в анализатор,
-     * а не молча потеряется, как раньше у стикера, контакта, геолокации и ссылки.
+     * Метаданные одного вложения. Ветвление по типизированным подтипам ядра v2:
+     * новый тип вложения без ветки здесь не потеряется молча — на него укажет
+     * анализатор при обновлении ядра (default возвращает null).
      *
      * @return StoredAttachment|null
      */
     private function metadataFor(Attachment $attachment, int $maxBytes): ?array
     {
-        return match ($attachment->type) {
-            AttachmentType::Image => $attachment->payload instanceof ImageAttachmentPayload
-                ? $this->download($attachment->payload->url, 'image', 'image', $maxBytes)
-                : ['type' => 'image'],
-            AttachmentType::Video => $attachment->payload instanceof VideoAttachmentPayload
-                ? $this->download($attachment->payload->url?->mp4, 'video', 'video', $maxBytes)
-                : ['type' => 'video'],
-            AttachmentType::Audio => $attachment->payload instanceof AudioAttachmentPayload
-                ? $this->download($attachment->payload->url, 'audio', 'audio', $maxBytes)
-                : ['type' => 'audio'],
-            AttachmentType::File => $attachment->payload instanceof FileAttachmentPayload
-                ? $this->download($attachment->payload->url, 'file', 'file', $maxBytes, $attachment->filename)
-                : ['type' => 'file'],
-            AttachmentType::Sticker => $this->stickerMetadata($attachment->payload, $maxBytes),
-            AttachmentType::Contact => $this->contactMetadata($attachment->payload),
-            AttachmentType::Location => $this->locationMetadata($attachment),
-            AttachmentType::Share => $this->shareMetadata($attachment->payload),
-            AttachmentType::InlineKeyboard => $this->keyboardMetadata($attachment->payload),
+        return match (true) {
+            $attachment instanceof PhotoAttachment => $this->download(
+                $attachment->payload->url,
+                'image',
+                'image',
+                $maxBytes,
+            ),
+            // Видео не скачиваем: файл большой, а оператору нужен факт вложения
+            // и ссылка на него в MAX, а не копия на приватном диске.
+            $attachment instanceof VideoAttachment => ['type' => 'video'],
+            $attachment instanceof AudioAttachment => $this->download(
+                $attachment->payload->url,
+                'audio',
+                'audio',
+                $maxBytes,
+            ),
+            $attachment instanceof FileAttachment => $this->download(
+                $attachment->payload->url,
+                'file',
+                'file',
+                $maxBytes,
+                $attachment->filename,
+            ),
+            $attachment instanceof StickerAttachment => $this->stickerMetadata($attachment, $maxBytes),
+            $attachment instanceof ContactAttachment => $this->contactMetadata($attachment->payload),
+            $attachment instanceof LocationAttachment => $this->locationMetadata($attachment),
+            $attachment instanceof ShareAttachment => $this->shareMetadata($attachment),
+            $attachment instanceof InlineKeyboardAttachment => $this->keyboardMetadata($attachment->payload),
+            default => null,
         };
     }
 
@@ -116,14 +130,10 @@ class MaxAttachmentStore
      *
      * @return StoredAttachment
      */
-    private function stickerMetadata(mixed $payload, int $maxBytes): array
+    private function stickerMetadata(StickerAttachment $attachment, int $maxBytes): array
     {
-        if (! is_array($payload)) {
-            return ['type' => 'sticker'];
-        }
-
-        $meta = $this->download($this->stringValue($payload['url'] ?? null), 'sticker', 'sticker', $maxBytes);
-        $code = $this->stringValue($payload['code'] ?? null);
+        $meta = $this->download($attachment->payload->url, 'sticker', 'sticker', $maxBytes);
+        $code = $this->stringValue($attachment->payload->code);
 
         if ($code !== null) {
             $meta['code'] = $this->limit($code, self::MAX_NAME_LENGTH);
@@ -135,17 +145,13 @@ class MaxAttachmentStore
     /**
      * Контакт по кнопке `request_contact`: имени и телефона достаточно для
      * карточки оператора. Имя берётся из `max_info` (профиль MAX), иначе из
-     * vCard (`FN`); телефон — из `vcf_phone`, а во входящем payload его нет,
-     * поэтому номер разбирается из `vcf_info` ядром.
+     * vCard (`FN`); номер разбирается из `vcf_info` ядром — отдельного поля
+     * `vcf_phone` во входящем payload нет и в ядре v2.0.0 оно удалено.
      *
      * @return StoredAttachment
      */
-    private function contactMetadata(mixed $payload): array
+    private function contactMetadata(ContactAttachmentPayload $payload): array
     {
-        if (! $payload instanceof ContactAttachmentPayload) {
-            return ['type' => 'contact'];
-        }
-
         $meta = ['type' => 'contact'];
 
         $name = $this->contactName($payload);
@@ -154,8 +160,8 @@ class MaxAttachmentStore
             $meta['name'] = $name;
         }
 
-        $phone = $payload->vcfPhone ?? ContactPhoneExtractor::fromVcf((string) $payload->vcfInfo);
-        $phone = is_string($phone) ? $this->limit(trim($phone), self::MAX_PHONE_LENGTH) : '';
+        $phone = ContactPhoneExtractor::fromVcf((string) $payload->vcfInfo);
+        $phone = $phone === null ? '' : $this->limit(trim($phone), self::MAX_PHONE_LENGTH);
 
         if ($phone !== '') {
             $meta['phone'] = $phone;
@@ -163,7 +169,6 @@ class MaxAttachmentStore
 
         return $meta;
     }
-
     private function contactName(ContactAttachmentPayload $payload): ?string
     {
         $info = $payload->maxInfo;
@@ -213,56 +218,44 @@ class MaxAttachmentStore
     }
 
     /**
-     * Геолокация: координаты приходят на верхнем уровне вложения (так в спеке),
-     * реже — внутри `payload`. Файла нет, поэтому отдаются сами координаты.
+     * Геолокация: координаты лежат на верхнем уровне вложения (так в спеке), файла
+     * нет, поэтому отдаются сами координаты.
      *
      * @return StoredAttachment
      */
-    private function locationMetadata(Attachment $attachment): array
+    private function locationMetadata(LocationAttachment $attachment): array
     {
-        $latitude = $attachment->latitude;
-        $longitude = $attachment->longitude;
-
-        if ($attachment->payload instanceof LocationAttachmentPayload) {
-            $latitude ??= $attachment->payload->latitude;
-            $longitude ??= $attachment->payload->longitude;
-        }
-
-        if ($latitude === null || $longitude === null) {
-            return ['type' => 'location'];
-        }
-
-        return ['type' => 'location', 'latitude' => $latitude, 'longitude' => $longitude];
+        return [
+            'type' => 'location',
+            'latitude' => $attachment->latitude,
+            'longitude' => $attachment->longitude,
+        ];
     }
 
     /**
-     * Превью внешней ссылки. Картинку превью (`image_url`) не скачиваем: это
+     * Превью внешней ссылки. Картинку превью (`imageUrl`) не скачиваем: это
      * произвольный внешний домен (не CDN MAX), а скачивание чужих URL — путь к
      * SSRF. Показываем заголовок, описание и саму ссылку.
      *
      * @return StoredAttachment
      */
-    private function shareMetadata(mixed $payload): array
+    private function shareMetadata(ShareAttachment $attachment): array
     {
         $meta = ['type' => 'share'];
 
-        if (! is_array($payload)) {
-            return $meta;
-        }
-
-        $url = self::httpUrl($payload['url'] ?? null);
+        $url = self::httpUrl($attachment->payload->url);
 
         if ($url !== null) {
             $meta['url'] = $url;
         }
 
-        $title = $this->stringValue($payload['title'] ?? null);
+        $title = $this->stringValue($attachment->title);
 
         if ($title !== null) {
             $meta['title'] = $this->limit($title, self::MAX_TITLE_LENGTH);
         }
 
-        $description = $this->stringValue($payload['description'] ?? null);
+        $description = $this->stringValue($attachment->description);
 
         if ($description !== null) {
             $meta['description'] = $this->limit($description, self::MAX_DESCRIPTION_LENGTH);
@@ -278,16 +271,12 @@ class MaxAttachmentStore
      *
      * @return StoredAttachment|null
      */
-    private function keyboardMetadata(mixed $payload): ?array
+    private function keyboardMetadata(Keyboard $keyboard): ?array
     {
-        if (! $payload instanceof InlineKeyboardAttachmentPayload) {
-            return null;
-        }
-
         $buttons = [];
 
-        foreach ($payload->rows as $row) {
-            foreach ($row->buttons as $button) {
+        foreach ($keyboard->buttons as $row) {
+            foreach ($row as $button) {
                 $text = $this->stringValue($button->text);
 
                 if ($text !== null) {

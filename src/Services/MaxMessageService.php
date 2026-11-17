@@ -17,7 +17,12 @@ use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChatUser;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\LaravelMaxClient\Support\Logger;
-use GeekCo\MaxPhpClient\Dto\Update;
+use GeekCo\MaxPhpClient\Dto\Update\ChatTitleChangedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\DialogClearedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\DialogRemovedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageCreatedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageEditedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageRemovedUpdate;
 use GeekCo\MaxPhpClient\Dto\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -34,14 +39,14 @@ class MaxMessageService
     ) {
     }
 
-    public function storeIncoming(Update $update): ?MaxMessage
+    public function storeIncoming(MessageCreatedUpdate $update): ?MaxMessage
     {
-        $user = $update->user ?? $update->message?->sender;
-        $chatId = $update->chatId ?? $update->message?->recipient->chatId;
+        $user = $update->message->sender;
+        $chatId = $update->message->recipient->chatId;
 
         if ($chatId === null) {
             $this->logger->log('warning', 'Incoming MAX message without chat skipped.', [
-                'update_type' => $update->updateType->value,
+                'update_type' => $update->updateType,
             ]);
 
             return null;
@@ -50,11 +55,11 @@ class MaxMessageService
         if ($user === null) {
             $this->logger->log('info', 'Incoming MAX message without sender stored without user.', [
                 'chat_id' => $chatId,
-                'update_type' => $update->updateType->value,
+                'update_type' => $update->updateType,
             ]);
         }
 
-        $messageId = $update->messageId ?? $update->message?->body?->mid;
+        $messageId = $update->message->body?->mid;
 
         // Ранний выход до скачивания медиа: повторная доставка апдейта не должна
         // заново сохранять вложения во приватный диск (иначе файлы-сироты).
@@ -66,8 +71,7 @@ class MaxMessageService
 
         $maxChat = $this->upsertChat($user?->userId, $chatId, $user);
 
-        $text = $update->message?->body?->text;
-        $text ??= $update->message?->body?->caption;
+        $text = $update->message->body?->text;
 
         return $this->createMessage(
             maxChat: $maxChat,
@@ -76,7 +80,7 @@ class MaxMessageService
             senderType: MaxMessageSender::User,
             text: $text,
             messageId: $messageId,
-            attachments: $this->attachments->storeFromIncoming($update->message?->body?->attachments),
+            attachments: $this->attachments->storeFromIncoming($update->message->body?->attachments),
         );
     }
 
@@ -89,16 +93,19 @@ class MaxMessageService
      * сохранения летит broadcast-событие `chat-message.updated`, чтобы открытая
      * лента поправила строку не дожидаясь `wire:poll`.
      */
-    public function applyIncomingEdit(Update $update): ?MaxMessage
+    public function applyIncomingEdit(MessageEditedUpdate $update): ?MaxMessage
     {
-        $message = $this->findByMaxMessageId($update);
+        $message = $this->findByMaxMessageId(
+            $update->message->recipient->chatId,
+            $update->message->body?->mid,
+            $update->updateType,
+        );
 
         if ($message === null) {
             return null;
         }
 
-        $text = $update->message?->body?->text;
-        $text ??= $update->message?->body?->caption;
+        $text = $update->message->body?->text;
 
         if ($text === null) {
             return null;
@@ -121,9 +128,9 @@ class MaxMessageService
      * После удаления летит broadcast-событие `chat-message.deleted` — модель к
      * этому моменту уже удалена, поэтому событие несёт её идентификаторы.
      */
-    public function applyIncomingRemoval(Update $update): bool
+    public function applyIncomingRemoval(MessageRemovedUpdate $update): bool
     {
-        $message = $this->findByMaxMessageId($update);
+        $message = $this->findByMaxMessageId($update->chatId, $update->messageId, $update->updateType);
 
         if ($message === null) {
             return false;
@@ -154,17 +161,9 @@ class MaxMessageService
      * После очистки уходит broadcast-событие `chat-message.cleared`, чтобы открытая
      * лента перечиталась целиком и глобальный счётчик непрочитанного обновился.
      */
-    public function applyIncomingClear(Update $update): int
+    public function applyIncomingClear(DialogClearedUpdate $update): int
     {
         $chatId = $update->chatId;
-
-        if ($chatId === null) {
-            $this->logger->log('warning', 'Incoming MAX clear without chat skipped.', [
-                'update_type' => $update->updateType->value,
-            ]);
-
-            return 0;
-        }
 
         $query = MaxMessage::query()->where('max_chat_id', $chatId);
 
@@ -203,18 +202,9 @@ class MaxMessageService
      * зависел бы от порядка слушателей `MaxUpdateReceived`. Чат уже скрыт
      * (список показывает только Active), так что оператор разницы не видит.
      */
-    public function applyIncomingChatRemoval(Update $update): bool
+    public function applyIncomingChatRemoval(DialogRemovedUpdate $update): bool
     {
         $chatId = $update->chatId;
-
-        if ($chatId === null) {
-            $this->logger->log('warning', 'Incoming MAX chat removal without chat skipped.', [
-                'update_type' => $update->updateType->value,
-            ]);
-
-            return false;
-        }
-
         $model = $this->chatModel();
 
         /** @var MaxChat|null $existing */
@@ -240,12 +230,12 @@ class MaxMessageService
      * заполнился бы чатами без сообщений. Пустой title игнорируется, чтобы не
      * затереть уже сохранённое название.
      */
-    public function applyIncomingTitle(Update $update): ?MaxChat
+    public function applyIncomingTitle(ChatTitleChangedUpdate $update): ?MaxChat
     {
         $chatId = $update->chatId;
-        $title = $update->title === null ? '' : trim($update->title);
+        $title = trim($update->title);
 
-        if ($chatId === null || $title === '') {
+        if ($title === '') {
             return null;
         }
 
@@ -556,17 +546,14 @@ class MaxMessageService
      * сообщений уникальны внутри чата, поэтому ищем по паре «чат + message_id»:
      * один message_id из другого чата не должен править или удалять эту историю.
      */
-    private function findByMaxMessageId(Update $update): ?MaxMessage
+    private function findByMaxMessageId(?int $chatId, ?string $messageId, string $updateType): ?MaxMessage
     {
         // `message_removed` присылает message_id на верхнем уровне, а
         // `message_edited` — только внутри message.body.mid (верхнего
-        // message_id в спеке нет), поэтому идентификатор берём с фолбэком.
-        $messageId = $update->messageId ?? $update->message?->body?->mid;
-        $chatId = $update->chatId ?? $update->message?->recipient->chatId;
-
+        // message_id в спеке нет), поэтому идентификатор передаёт вызывающий.
         if ($messageId === null || $messageId === '' || $chatId === null) {
             $this->logger->log('warning', 'Incoming MAX message change without chat or message id skipped.', [
-                'update_type' => $update->updateType->value,
+                'update_type' => $updateType,
             ]);
 
             return null;

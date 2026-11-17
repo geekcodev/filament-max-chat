@@ -21,16 +21,23 @@ use GeekCo\FilamentMaxChat\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser as RegistryMaxUser;
 use GeekCo\MaxPhpClient\Dto\Attachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\ContactAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\InlineKeyboardAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\PhotoAttachment;
 use GeekCo\MaxPhpClient\Dto\ContactAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\ImageAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\Keyboard;
 use GeekCo\MaxPhpClient\Dto\Message;
 use GeekCo\MaxPhpClient\Dto\MessageBody;
+use GeekCo\MaxPhpClient\Dto\PhotoAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\Recipient;
-use GeekCo\MaxPhpClient\Dto\Update;
+use GeekCo\MaxPhpClient\Dto\Update\ChatTitleChangedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\DialogClearedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\DialogRemovedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageCreatedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageEditedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageRemovedUpdate;
 use GeekCo\MaxPhpClient\Dto\User as MaxUser;
-use GeekCo\MaxPhpClient\Enum\AttachmentType;
 use GeekCo\MaxPhpClient\Enum\ChatType;
-use GeekCo\MaxPhpClient\Enum\UpdateType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -124,10 +131,8 @@ class MaxMessageServiceTest extends TestCase
     {
         $service = app(MaxMessageService::class);
 
-        $this->assertNull($service->storeIncoming(new Update(
-            updateType: UpdateType::MessageCreated,
+        $this->assertNull($service->storeIncoming(new MessageCreatedUpdate(
             timestamp: 1000,
-            user: $this->maxUser(),
             message: new Message(
                 sender: $this->maxUser(),
                 recipient: new Recipient(chatId: null, userId: 111),
@@ -340,10 +345,14 @@ class MaxMessageServiceTest extends TestCase
 
     public function test_store_incoming_without_chat_is_skipped(): void
     {
-        $update = new Update(
-            updateType: UpdateType::MessageCreated,
+        $update = new MessageCreatedUpdate(
             timestamp: 1000,
-            user: $this->maxUser(),
+            message: new Message(
+                sender: $this->maxUser(),
+                recipient: new Recipient(chatId: null, userId: 111),
+                timestamp: 1000,
+                body: new MessageBody(mid: 'm-3', seq: 1, text: 'Без чата'),
+            ),
         );
 
         $this->assertNull(app(MaxMessageService::class)->storeIncoming($update));
@@ -554,10 +563,11 @@ class MaxMessageServiceTest extends TestCase
         ]);
 
         $update = $this->incomingUpdateWithAttachments([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/photo.jpg'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(
+                photoId: 1,
+                token: 'photo-token',
+                url: 'https://cdn.max.ru/photo.jpg',
+            )),
         ]);
 
         $message = app(MaxMessageService::class)->storeIncoming($update);
@@ -586,10 +596,11 @@ class MaxMessageServiceTest extends TestCase
         ]);
 
         $update = $this->incomingUpdateWithAttachments([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/photo.jpg'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(
+                photoId: 1,
+                token: 'photo-token',
+                url: 'https://cdn.max.ru/photo.jpg',
+            )),
         ]);
 
         $service = app(MaxMessageService::class);
@@ -609,7 +620,7 @@ class MaxMessageServiceTest extends TestCase
         Storage::fake('local');
 
         $update = $this->incomingUpdateWithAttachments([
-            new Attachment(type: AttachmentType::InlineKeyboard, payload: []),
+            new InlineKeyboardAttachment(new Keyboard([[]])),
         ]);
 
         $message = app(MaxMessageService::class)->storeIncoming($update);
@@ -623,7 +634,7 @@ class MaxMessageServiceTest extends TestCase
         Storage::fake('local');
 
         $update = $this->incomingUpdateWithAttachments([
-            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+            new ContactAttachment(new ContactAttachmentPayload(
                 hash: 'abc',
                 vcfInfo: "BEGIN:VCARD\nFN:Мария Сидорова\nTEL;TYPE=CELL:+79990001122\nEND:VCARD",
             )),
@@ -642,13 +653,10 @@ class MaxMessageServiceTest extends TestCase
     /**
      * @param  list<Attachment>  $attachments
      */
-    private function incomingUpdateWithAttachments(array $attachments): Update
+    private function incomingUpdateWithAttachments(array $attachments): MessageCreatedUpdate
     {
-        return new Update(
-            updateType: UpdateType::MessageCreated,
+        return new MessageCreatedUpdate(
             timestamp: 1000,
-            user: $this->maxUser(),
-            chatId: 222,
             message: new Message(
                 sender: $this->maxUser(),
                 recipient: new Recipient(chatId: 222, userId: 111),
@@ -843,7 +851,7 @@ class MaxMessageServiceTest extends TestCase
         $this->assertNotNull($message);
 
         $edited = $service->applyIncomingEdit(
-            $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', 'Привет, как дела?'),
+            $this->editedUpdate('m-1', 'Привет, как дела?'),
         );
 
         $this->assertNotNull($edited);
@@ -855,26 +863,13 @@ class MaxMessageServiceTest extends TestCase
         $this->assertDatabaseCount('max_chat_messages', 1);
     }
 
-    public function test_apply_incoming_edit_falls_back_to_caption(): void
-    {
-        $service = app(MaxMessageService::class);
-        $service->storeIncoming($this->incomingUpdate('Фото', 'm-1'));
-
-        $edited = $service->applyIncomingEdit(
-            $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', null, 'Новое подпись'),
-        );
-
-        $this->assertNotNull($edited);
-        $this->assertSame('Новое подпись', $edited->text);
-    }
-
     public function test_apply_incoming_edit_ignores_unknown_message(): void
     {
         $service = app(MaxMessageService::class);
         $service->storeIncoming($this->incomingUpdate('Привет'));
 
         $this->assertNull($service->applyIncomingEdit(
-            $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-unknown', 'Правка'),
+            $this->editedUpdate('m-unknown', 'Правка'),
         ));
         $this->assertDatabaseCount('max_chat_messages', 1);
         $this->assertDatabaseHas('max_chat_messages', ['text' => 'Привет']);
@@ -885,15 +880,15 @@ class MaxMessageServiceTest extends TestCase
         $service = app(MaxMessageService::class);
         $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
 
-        $update = $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', 'Правка');
-        $this->assertNull($service->applyIncomingEdit(
-            new Update(
-                updateType: $update->updateType,
-                timestamp: $update->timestamp,
-                chatId: 999,
-                messageId: 'm-1',
+        $this->assertNull($service->applyIncomingEdit(new MessageEditedUpdate(
+            timestamp: 2000,
+            message: new Message(
+                sender: $this->maxUser(),
+                recipient: new Recipient(chatId: 999, userId: 111),
+                timestamp: 2000,
+                body: new MessageBody(mid: 'm-1', seq: 1, text: 'Правка'),
             ),
-        ));
+        )));
         $this->assertDatabaseHas('max_chat_messages', ['text' => 'Привет']);
     }
 
@@ -902,15 +897,22 @@ class MaxMessageServiceTest extends TestCase
         $service = app(MaxMessageService::class);
         $service->storeIncoming($this->incomingUpdate('Привет'));
 
-        $this->assertNull($service->applyIncomingEdit(new Update(
-            updateType: UpdateType::MessageEdited,
+        $this->assertNull($service->applyIncomingEdit(new MessageEditedUpdate(
             timestamp: 1000,
-            chatId: 222,
+            message: new Message(
+                sender: $this->maxUser(),
+                recipient: new Recipient(chatId: 222, userId: 111),
+                timestamp: 1000,
+            ),
         )));
-        $this->assertNull($service->applyIncomingEdit(new Update(
-            updateType: UpdateType::MessageEdited,
+        $this->assertNull($service->applyIncomingEdit(new MessageEditedUpdate(
             timestamp: 1000,
-            messageId: 'm-1',
+            message: new Message(
+                sender: $this->maxUser(),
+                recipient: new Recipient(chatId: null, userId: 111),
+                timestamp: 1000,
+                body: new MessageBody(mid: 'm-1', seq: 1, text: 'Правка'),
+            ),
         )));
         $this->assertDatabaseHas('max_chat_messages', ['text' => 'Привет']);
     }
@@ -921,7 +923,7 @@ class MaxMessageServiceTest extends TestCase
         $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
 
         $this->assertNull($service->applyIncomingEdit(
-            $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', null),
+            $this->editedUpdate('m-1', null),
         ));
         $this->assertDatabaseHas('max_chat_messages', ['text' => 'Привет']);
     }
@@ -935,10 +937,11 @@ class MaxMessageServiceTest extends TestCase
 
         $service = app(MaxMessageService::class);
         $message = $service->storeIncoming($this->incomingUpdateWithAttachments([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/photo.jpg'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(
+                photoId: 1,
+                token: 'photo-token',
+                url: 'https://cdn.max.ru/photo.jpg',
+            )),
         ]));
         $this->assertNotNull($message);
 
@@ -948,7 +951,7 @@ class MaxMessageServiceTest extends TestCase
         Storage::disk('local')->assertExists($path);
 
         $this->assertTrue($service->applyIncomingRemoval(
-            $this->messageChangeUpdate(UpdateType::MessageRemoved, 'm-1', null),
+            $this->removedUpdate('m-1'),
         ));
 
         $this->assertDatabaseCount('max_chat_messages', 0);
@@ -961,12 +964,13 @@ class MaxMessageServiceTest extends TestCase
         $service->storeIncoming($this->incomingUpdate('Привет'));
 
         $this->assertFalse($service->applyIncomingRemoval(
-            $this->messageChangeUpdate(UpdateType::MessageRemoved, 'm-unknown', null),
+            $this->removedUpdate('m-unknown'),
         ));
-        $this->assertFalse($service->applyIncomingRemoval(new Update(
-            updateType: UpdateType::MessageRemoved,
+        $this->assertFalse($service->applyIncomingRemoval(new MessageRemovedUpdate(
             timestamp: 1000,
             chatId: 222,
+            messageId: '',
+            userId: 111,
         )));
         $this->assertDatabaseCount('max_chat_messages', 1);
     }
@@ -979,8 +983,7 @@ class MaxMessageServiceTest extends TestCase
         $message = $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
         $this->assertNotNull($message);
 
-        $edited = $service->applyIncomingEdit(new Update(
-            updateType: UpdateType::MessageEdited,
+        $edited = $service->applyIncomingEdit(new MessageEditedUpdate(
             timestamp: 2000,
             message: new Message(
                 sender: $this->maxUser(),
@@ -1004,7 +1007,7 @@ class MaxMessageServiceTest extends TestCase
         $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
 
         $edited = $service->applyIncomingEdit(
-            $this->messageChangeUpdate(UpdateType::MessageEdited, 'm-1', 'Новый текст'),
+            $this->editedUpdate('m-1', 'Новый текст'),
         );
         $this->assertNotNull($edited);
 
@@ -1023,7 +1026,7 @@ class MaxMessageServiceTest extends TestCase
         $this->assertNotNull($message);
 
         $this->assertTrue($service->applyIncomingRemoval(
-            $this->messageChangeUpdate(UpdateType::MessageRemoved, 'm-1', null),
+            $this->removedUpdate('m-1'),
         ));
 
         \Illuminate\Support\Facades\Event::assertDispatched(
@@ -1042,7 +1045,7 @@ class MaxMessageServiceTest extends TestCase
         $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
 
         $this->assertFalse($service->applyIncomingRemoval(
-            $this->messageChangeUpdate(UpdateType::MessageRemoved, 'm-unknown', null),
+            $this->removedUpdate('m-unknown'),
         ));
 
         \Illuminate\Support\Facades\Event::assertNotDispatched(MaxMessageDeleted::class);
@@ -1082,10 +1085,10 @@ class MaxMessageServiceTest extends TestCase
 
         Event::fake([MaxMessagesCleared::class]);
 
-        $deleted = $service->applyIncomingClear(new Update(
-            updateType: UpdateType::DialogCleared,
+        $deleted = $service->applyIncomingClear(new DialogClearedUpdate(
             timestamp: 1000,
             chatId: 222,
+            user: $this->maxUser(),
         ));
 
         $this->assertSame(2, $deleted);
@@ -1107,40 +1110,23 @@ class MaxMessageServiceTest extends TestCase
 
         $service = app(MaxMessageService::class);
         $service->storeIncoming($this->incomingUpdateWithAttachments([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/photo.jpg'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(
+                photoId: 1,
+                token: 'photo-token',
+                url: 'https://cdn.max.ru/photo.jpg',
+            )),
         ]));
 
         $this->assertCount(1, Storage::disk('local')->allFiles());
 
-        $service->applyIncomingClear(new Update(
-            updateType: UpdateType::DialogCleared,
+        $service->applyIncomingClear(new DialogClearedUpdate(
             timestamp: 1000,
             chatId: 222,
+            user: $this->maxUser(),
         ));
 
         $this->assertSame([], Storage::disk('local')->allFiles());
         $this->assertDatabaseCount('max_chat_messages', 0);
-    }
-
-    public function test_apply_incoming_clear_without_chat_is_noop(): void
-    {
-        Event::fake([MaxMessagesCleared::class]);
-
-        $service = app(MaxMessageService::class);
-        $service->storeIncoming($this->incomingUpdate('Не удаляется', 'm-1'));
-
-        $deleted = $service->applyIncomingClear(new Update(
-            updateType: UpdateType::DialogCleared,
-            timestamp: 1000,
-        ));
-
-        $this->assertSame(0, $deleted);
-        $this->assertDatabaseCount('max_chat_messages', 1);
-
-        Event::assertNotDispatched(MaxMessagesCleared::class);
     }
 
     public function test_apply_incoming_chat_removal_marks_status_removed_and_keeps_history(): void
@@ -1150,10 +1136,10 @@ class MaxMessageServiceTest extends TestCase
 
         Event::fake([MaxChatRemoved::class]);
 
-        $removed = $service->applyIncomingChatRemoval(new Update(
-            updateType: UpdateType::DialogRemoved,
+        $removed = $service->applyIncomingChatRemoval(new DialogRemovedUpdate(
             timestamp: 1000,
             chatId: 222,
+            user: $this->maxUser(),
         ));
 
         $this->assertTrue($removed);
@@ -1169,32 +1155,14 @@ class MaxMessageServiceTest extends TestCase
         );
     }
 
-    public function test_apply_incoming_chat_removal_without_chat_is_noop(): void
-    {
-        Event::fake([MaxChatRemoved::class]);
-
-        $service = app(MaxMessageService::class);
-        $service->storeIncoming($this->incomingUpdate('Чат остаётся', 'm-1'));
-
-        $removed = $service->applyIncomingChatRemoval(new Update(
-            updateType: UpdateType::DialogRemoved,
-            timestamp: 1000,
-        ));
-
-        $this->assertFalse($removed);
-        $this->assertSame(MaxChatStatus::Active, MaxChat::query()->find(222)?->status);
-
-        Event::assertNotDispatched(MaxChatRemoved::class);
-    }
-
     public function test_apply_incoming_chat_removal_for_unknown_chat_is_noop(): void
     {
         Event::fake([MaxChatRemoved::class]);
 
-        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new Update(
-            updateType: UpdateType::DialogRemoved,
+        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new DialogRemovedUpdate(
             timestamp: 1000,
             chatId: 999,
+            user: $this->maxUser(),
         ));
 
         $this->assertFalse($removed);
@@ -1210,10 +1178,10 @@ class MaxMessageServiceTest extends TestCase
 
         Event::fake([MaxChatRemoved::class]);
 
-        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new Update(
-            updateType: UpdateType::DialogRemoved,
+        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new DialogRemovedUpdate(
             timestamp: 1000,
             chatId: 222,
+            user: $this->maxUser(),
         ));
 
         $this->assertFalse($removed);
@@ -1228,10 +1196,10 @@ class MaxMessageServiceTest extends TestCase
 
         Event::fake([MaxChatRemoved::class]);
 
-        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new Update(
-            updateType: UpdateType::DialogRemoved,
+        $removed = app(MaxMessageService::class)->applyIncomingChatRemoval(new DialogRemovedUpdate(
             timestamp: 1000,
             chatId: 222,
+            user: $this->maxUser(),
         ));
 
         $this->assertFalse($removed);
@@ -1243,10 +1211,10 @@ class MaxMessageServiceTest extends TestCase
     {
         $this->makeChat(222, ['title' => null]);
 
-        $chat = app(MaxMessageService::class)->applyIncomingTitle(new Update(
-            updateType: UpdateType::ChatTitleChanged,
+        $chat = app(MaxMessageService::class)->applyIncomingTitle(new ChatTitleChangedUpdate(
             timestamp: 1000,
             chatId: 222,
+            user: $this->maxUser(),
             title: '  Новая группа  ',
         ));
 
@@ -1258,10 +1226,10 @@ class MaxMessageServiceTest extends TestCase
     {
         $this->makeChat(222, ['title' => 'Старое название']);
 
-        $chat = app(MaxMessageService::class)->applyIncomingTitle(new Update(
-            updateType: UpdateType::ChatTitleChanged,
+        $chat = app(MaxMessageService::class)->applyIncomingTitle(new ChatTitleChangedUpdate(
             timestamp: 1000,
             chatId: 222,
+            user: $this->maxUser(),
             title: '   ',
         ));
 
@@ -1273,16 +1241,10 @@ class MaxMessageServiceTest extends TestCase
     {
         $service = app(MaxMessageService::class);
 
-        $this->assertNull($service->applyIncomingTitle(new Update(
-            updateType: UpdateType::ChatTitleChanged,
+        $this->assertNull($service->applyIncomingTitle(new ChatTitleChangedUpdate(
             timestamp: 1000,
             chatId: 999,
-            title: 'Название',
-        )));
-
-        $this->assertNull($service->applyIncomingTitle(new Update(
-            updateType: UpdateType::ChatTitleChanged,
-            timestamp: 1000,
+            user: $this->maxUser(),
             title: 'Название',
         )));
 
@@ -1337,33 +1299,33 @@ class MaxMessageServiceTest extends TestCase
         $this->assertDatabaseCount('max_chat_messages', 2);
     }
 
-    private function messageChangeUpdate(
-        UpdateType $type,
-        string $messageId,
-        ?string $text,
-        ?string $caption = null,
-    ): Update {
-        return new Update(
-            updateType: $type,
+    private function editedUpdate(string $messageId, ?string $text): MessageEditedUpdate
+    {
+        return new MessageEditedUpdate(
             timestamp: 2000,
-            chatId: 222,
-            messageId: $messageId,
             message: new Message(
                 sender: $this->maxUser(),
                 recipient: new Recipient(chatId: 222, userId: 111),
                 timestamp: 2000,
-                body: new MessageBody(mid: $messageId, seq: 1, text: $text, caption: $caption),
+                body: new MessageBody(mid: $messageId, seq: 1, text: $text),
             ),
         );
     }
 
-    private function incomingUpdate(string $text, ?string $mid = null): Update
+    private function removedUpdate(string $messageId): MessageRemovedUpdate
     {
-        return new Update(
-            updateType: UpdateType::MessageCreated,
-            timestamp: 1000,
-            user: $this->maxUser(),
+        return new MessageRemovedUpdate(
+            timestamp: 2000,
             chatId: 222,
+            messageId: $messageId,
+            userId: 111,
+        );
+    }
+
+    private function incomingUpdate(string $text, ?string $mid = null): MessageCreatedUpdate
+    {
+        return new MessageCreatedUpdate(
+            timestamp: 1000,
             message: new Message(
                 sender: $this->maxUser(),
                 recipient: new Recipient(chatId: 222, userId: 111),
@@ -1378,12 +1340,10 @@ class MaxMessageServiceTest extends TestCase
         return 'm-'.(++self::$midSequence);
     }
 
-    private function incomingChatUpdate(int $chatId, string $text, ?string $mid = null): Update
+    private function incomingChatUpdate(int $chatId, string $text, ?string $mid = null): MessageCreatedUpdate
     {
-        return new Update(
-            updateType: UpdateType::MessageCreated,
+        return new MessageCreatedUpdate(
             timestamp: 1000,
-            chatId: $chatId,
             message: new Message(
                 sender: $this->maxUser(),
                 recipient: new Recipient(chatId: $chatId, userId: 111),
@@ -1396,16 +1356,13 @@ class MaxMessageServiceTest extends TestCase
     /**
      * Пост в канале: отправителя в апдейте нет, у канала нет и участников.
      */
-    private function channelPostUpdate(string $text): Update
+    private function channelPostUpdate(string $text): MessageCreatedUpdate
     {
-        return new Update(
-            updateType: UpdateType::MessageCreated,
+        return new MessageCreatedUpdate(
             timestamp: 1000,
-            chatId: -777,
-            isChannel: true,
             message: new Message(
                 sender: null,
-                recipient: new Recipient(chatId: -777, chatType: ChatType::Channel->value),
+                recipient: new Recipient(chatId: -777, chatType: ChatType::Channel),
                 timestamp: 1000,
                 body: new MessageBody(mid: 'p-1', seq: 1, text: $text),
             ),
