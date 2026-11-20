@@ -1212,6 +1212,94 @@ class OperatorChatTest extends TestCase
             ->assertSee('tel:+79990001122', false);
     }
 
+    public function test_user_info_modal_shows_phone_and_tel_link(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, ['phone' => '+79990001122']);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.phone'))
+            ->assertSee('+79990001122')
+            ->assertSee('tel:+79990001122', false)
+            ->assertSee(__('filament-max-chat::chat.phone_unverified'));
+    }
+
+    public function test_user_info_modal_does_not_mark_verified_phone(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, [
+            'phone' => '+79990001122',
+            'phone_verified_at' => now(),
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('tel:+79990001122', false)
+            ->assertDontSee(__('filament-max-chat::chat.phone_unverified'));
+    }
+
+    public function test_user_info_modal_shows_missing_phone_hint(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.phone_missing'));
+    }
+
+    public function test_user_info_modal_escapes_phone_markup(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, ['phone' => '"><script>alert(1)</script>']);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertDontSee('<script>alert(1)</script>', false);
+    }
+
+    public function test_user_info_modal_is_accessible_dialog(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('role="dialog"', false)
+            ->assertSee('aria-modal="true"', false)
+            ->assertSee('aria-labelledby="fmc-user-info-title-', false)
+            ->assertSee('x-trap.noscroll="showUserInfo"', false)
+            ->assertSee('aria-haspopup="dialog"', false);
+    }
+
+    public function test_user_info_modal_offers_request_contact_for_unverified_phone(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, ['phone' => '+79990001122']);
+
+        $html = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->html();
+
+        $this->assertSame(2, substr_count($html, 'wire:click="requestContact"'));
+    }
+
+    public function test_user_info_modal_hides_request_contact_for_verified_phone(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, [
+            'phone' => '+79990001122',
+            'phone_verified_at' => now(),
+        ]);
+
+        $html = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->html();
+
+        $this->assertSame(0, substr_count($html, 'wire:click="requestContact"'));
+    }
+
     public function test_incoming_location_message_renders_map_link(): void
     {
         $staff = $this->createStaff();
@@ -1224,8 +1312,24 @@ class OperatorChatTest extends TestCase
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
-            ->assertSee('openstreetmap.org', false)
+            ->assertSee('yandex.ru/maps/?pt=37.6173,55.7558', false)
             ->assertSee('55.7558');
+    }
+
+    public function test_incoming_location_with_non_numeric_metadata_does_not_build_map_link(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessageWithAttachment($chat, [
+            'type' => 'location',
+            'latitude' => '55.7558&z=1',
+            'longitude' => '37.6173',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertDontSee('yandex.ru/maps', false)
+            ->assertSee(__('filament-max-chat::chat.preview.location'));
     }
 
     public function test_incoming_share_message_renders_title_and_link(): void
@@ -1435,6 +1539,72 @@ class OperatorChatTest extends TestCase
             ->test(OperatorChat::class)
             ->call('requestContact')
             ->assertHasNoErrors();
+    }
+
+    public function test_request_contact_button_is_visible_when_phone_is_missing(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.request_contact'));
+    }
+
+    public function test_request_contact_button_is_visible_when_phone_is_not_verified(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, ['phone' => '+79990001122']);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.request_contact'));
+    }
+
+    public function test_request_contact_button_is_hidden_when_phone_is_verified(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, [
+            'phone' => '+79990001122',
+            'phone_verified_at' => now(),
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertDontSee(__('filament-max-chat::chat.request_contact'));
+    }
+
+    public function test_header_builtin_actions_use_bordered_semantic_buttons(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('aria-label="'.__('filament-max-chat::chat.remove_chat').'"', false)
+            ->assertSee('aria-label="'.__('filament-max-chat::chat.clear_history').'"', false)
+            ->assertSee('border-amber-200', false)
+            ->assertSee('border-red-200', false);
+    }
+
+    public function test_header_actions_render_default_bordered_style_and_divider(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        config()->set('filament-max-chat.actions.header', [
+            [
+                'label' => 'Создать заявку',
+                'icon' => 'heroicon-o-document-plus',
+                'url' => 'https://example.test/leads',
+            ],
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('aria-label="Создать заявку"', false)
+            ->assertSee('border-gray-200', false)
+            ->assertSee('h-5 w-px', false);
     }
 
     public function test_header_actions_resolve_callable_with_chat_context(): void

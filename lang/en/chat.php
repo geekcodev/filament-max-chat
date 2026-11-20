@@ -54,7 +54,7 @@ return [
     'loading' => 'Loading…',
     'clear_history' => 'Clear history',
     'clear_confirm' => 'Delete all messages in this chat? This cannot be undone.',
-    'remove_chat' => 'Remove chat',
+    'remove_chat' => 'Remove from list',
     'remove_chat_confirm' => 'Remove this conversation from the list? Message history will be kept.',
     'delete_message' => 'Delete message',
     'delete_confirm' => 'Delete this message?',
@@ -82,6 +82,9 @@ return [
     'notification_sound_off' => 'Sound notifications: off',
 
     'close' => 'Close',
+    'phone' => 'Phone',
+    'phone_missing' => 'not set',
+    'phone_unverified' => 'not verified',
 
     'search_placeholder' => 'Search…',
 

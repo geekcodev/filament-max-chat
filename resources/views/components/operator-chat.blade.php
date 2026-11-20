@@ -80,18 +80,28 @@
                     >
                         <x-heroicon-o-arrow-left class="h-5 w-5" />
                     </button>
-                    @if ($chatAvatar)
-                        <img src="{{ $chatAvatar }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
-                    @elseif ($chatUser)
-                        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
-                            <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
-                        </div>
-                    @endif
                     @if ($chatUser)
-                        <button type="button" @click="showUserInfo = true" class="min-w-0 truncate text-sm font-medium text-gray-950 hover:underline dark:text-white">
-                            {{ $activeChat?->displayName() }}
+                        <button
+                            type="button"
+                            @click="showUserInfo = true"
+                            aria-haspopup="dialog"
+                            class="flex min-w-0 items-center gap-2 rounded-md text-left hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40"
+                        >
+                            @if ($chatAvatar)
+                                <img src="{{ $chatAvatar }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
+                            @else
+                                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10">
+                                    <span class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ mb_strtoupper(mb_substr($chatUser->first_name, 0, 1) . mb_substr($chatUser->last_name ?? '', 0, 1)) }}</span>
+                                </div>
+                            @endif
+                            <span class="min-w-0 truncate text-sm font-medium text-gray-950 dark:text-white">
+                                {{ $activeChat?->displayName() }}
+                            </span>
                         </button>
                     @else
+                        @if ($chatAvatar)
+                            <img src="{{ $chatAvatar }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
+                        @endif
                         <span class="min-w-0 truncate text-sm font-medium text-gray-950 dark:text-white">
                             {{ $activeChat?->displayName() }}
                         </span>
@@ -112,6 +122,10 @@
                     >
                         <div
                             x-show="showUserInfo"
+                            x-trap.noscroll="showUserInfo"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="fmc-user-info-title-{{ $this->getId() }}"
                             x-transition:enter="ease-out duration-200"
                             x-transition:enter-start="opacity-0 scale-95"
                             x-transition:enter-end="opacity-100 scale-100"
@@ -130,12 +144,36 @@
                                     </div>
                                 @endif
                                 <div class="text-center">
-                                    <p class="text-base font-semibold text-gray-950 dark:text-white">{{ $chatUser?->first_name }} {{ $chatUser?->last_name }}</p>
+                                    <p id="fmc-user-info-title-{{ $this->getId() }}" class="text-base font-semibold text-gray-950 dark:text-white">{{ $chatUser?->first_name }} {{ $chatUser?->last_name }}</p>
                                     <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">ID: {{ $chatUser?->user_id }}</p>
+                                    @if ($chatUser !== null)
+                                        <p class="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+                                            {{ __('filament-max-chat::chat.phone') }}:
+                                            @if (filled($chatUser->phone))
+                                                <a href="tel:{{ $chatUser->phone }}" class="break-all font-medium text-gray-950 underline hover:no-underline dark:text-white">{{ $chatUser->phone }}</a>
+                                                @if ($chatUser->phone_verified_at === null)
+                                                    <span class="ml-1 text-xs text-amber-700 dark:text-amber-400">{{ __('filament-max-chat::chat.phone_unverified') }}</span>
+                                                @endif
+                                            @else
+                                                <span>{{ __('filament-max-chat::chat.phone_missing') }}</span>
+                                            @endif
+                                        </p>
+                                    @endif
                                 </div>
                             </div>
-                            <div class="mt-5 flex justify-center">
-                                <button type="button" @click="showUserInfo = false" class="rounded-lg bg-gray-100 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20">
+                            <div class="mt-5 flex flex-col items-center gap-2">
+                                @if ($this->canAnswer && $this->canRequestContact)
+                                    <button
+                                        type="button"
+                                        wire:click="requestContact"
+                                        @click="showUserInfo = false"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20"
+                                    >
+                                        <x-heroicon-o-phone-arrow-up-right class="h-4 w-4 shrink-0" />
+                                        {{ __('filament-max-chat::chat.request_contact') }}
+                                    </button>
+                                @endif
+                                <button type="button" @click="showUserInfo = false" class="rounded-lg bg-gray-100 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20">
                                     {{ __('filament-max-chat::chat.close') }}
                                 </button>
                             </div>
@@ -143,15 +181,16 @@
                     </div>
                 </div>
                 @if ($this->canAnswer)
-                    <div class="flex shrink-0 items-center gap-1">
+                    @php($headerActions = $this->headerActions)
+                    <div class="flex shrink-0 items-center gap-1.5">
                         @stack('filament-max-chat.header-actions-start')
-                        @foreach ($this->headerActions as $action)
+                        @foreach ($headerActions as $action)
                             @php($actionUrl = $action['url'] ?? '#')
                             @php($actionLabel = $action['label'] ?? '')
                             @php($actionIcon = $action['icon'] ?? null)
                             @php($openNewTab = $action['open_new_tab'] ?? false)
                             @php($actionTitle = $action['title'] ?? $actionLabel)
-                            @php($actionClass = $action['class'] ?? 'shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-gray-100 dark:text-white dark:hover:bg-white/10')
+                            @php($actionClass = $action['class'] ?? 'shrink-0 inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-1.5 text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:border-white/10 dark:bg-white/5 dark:text-gray-300 dark:hover:bg-white/10 dark:hover:text-white')
                             @php($actionPermission = $action['permission'] ?? null)
                             @if ($actionPermission === null || auth()->user()?->can($actionPermission))
                                 <a
@@ -159,30 +198,36 @@
                                     @if($openNewTab) target="_blank" rel="noopener noreferrer" @endif
                                     class="{{ $actionClass }}"
                                     title="{{ $actionTitle }}"
+                                    aria-label="{{ $actionTitle }}"
                                 >
                                     @if (is_string($actionIcon) && $actionIcon !== '')
                                         <x-dynamic-component :component="$actionIcon" class="h-5 w-5" />
                                     @elseif (filled($actionLabel))
-                                        <span class="px-1.5 text-sm">{{ $actionLabel }}</span>
+                                        <span class="text-sm">{{ $actionLabel }}</span>
                                     @endif
                                 </a>
                             @endif
                         @endforeach
+                        @if ($headerActions !== [])
+                            <span class="mx-0.5 h-5 w-px bg-gray-200 dark:bg-white/10" aria-hidden="true"></span>
+                        @endif
                         <button
                             type="button"
                             wire:click="removeChat"
                             wire:confirm="{{ __('filament-max-chat::chat.remove_chat_confirm') }}"
-                            class="shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-red-100 hover:text-red-600 dark:text-white dark:hover:bg-red-950 dark:hover:text-red-400"
+                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-amber-50/60 text-amber-600 transition hover:border-amber-300 hover:bg-amber-100 hover:text-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20 dark:hover:text-amber-300"
                             title="{{ __('filament-max-chat::chat.remove_chat') }}"
+                            aria-label="{{ __('filament-max-chat::chat.remove_chat') }}"
                         >
-                            <x-heroicon-o-x-circle class="h-5 w-5" />
+                            <x-heroicon-o-archive-box-x-mark class="h-5 w-5" />
                         </button>
                         <button
                             type="button"
                             wire:click="clearChat"
                             wire:confirm="{{ __('filament-max-chat::chat.clear_confirm') }}"
-                            class="shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-red-100 hover:text-red-600 dark:text-white dark:hover:bg-red-950 dark:hover:text-red-400"
+                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50/60 text-red-600 transition hover:border-red-300 hover:bg-red-100 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20 dark:hover:text-red-300"
                             title="{{ __('filament-max-chat::chat.clear_history') }}"
+                            aria-label="{{ __('filament-max-chat::chat.clear_history') }}"
                         >
                             <x-heroicon-o-trash class="h-5 w-5" />
                         </button>
@@ -275,10 +320,10 @@
                                         </div>
                                     </div>
                                 @elseif ($type === 'location')
-                                    @php($latitude = $attachment['latitude'] ?? null)
-                                    @php($longitude = $attachment['longitude'] ?? null)
+                                    @php($latitude = is_numeric($attachment['latitude'] ?? null) ? (float) $attachment['latitude'] : null)
+                                    @php($longitude = is_numeric($attachment['longitude'] ?? null) ? (float) $attachment['longitude'] : null)
                                     @if ($latitude !== null && $longitude !== null)
-                                        @php($mapUrl = 'https://www.openstreetmap.org/?mlat='.$latitude.'&mlon='.$longitude.'#map=16/'.$latitude.'/'.$longitude)
+                                        @php($mapUrl = 'https://yandex.ru/maps/?pt='.$longitude.','.$latitude.'&z=17&l=map')
                                         <a href="{{ $mapUrl }}" target="_blank" rel="noopener" class="mb-1 inline-flex items-center gap-1 underline opacity-90 hover:opacity-100">
                                             <x-heroicon-o-map-pin class="h-4 w-4 shrink-0" />
                                             {{ __('filament-max-chat::chat.location.open') }} ({{ $latitude }}, {{ $longitude }})
@@ -343,9 +388,7 @@
                     <form wire:submit="sendReply" class="space-y-2" x-data="fmcReplyEditor()">
                         <div class="flex flex-wrap items-center gap-1">
                             @stack('filament-max-chat.formatting-actions-start')
-                            @php($formatChat = $activeChat)
-                            @php($formatChatUser = $formatChat?->interlocutor())
-                            @if ($this->canAnswer && $formatChatUser !== null && blank($formatChatUser->phone))
+                            @if ($this->canAnswer && $this->canRequestContact)
                                 <button
                                     type="button"
                                     wire:click="requestContact"

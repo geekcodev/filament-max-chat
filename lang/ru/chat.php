@@ -54,7 +54,7 @@ return [
     'loading' => 'Загрузка…',
     'clear_history' => 'Очистить историю',
     'clear_confirm' => 'Удалить все сообщения в этом чате? Это действие необратимо.',
-    'remove_chat' => 'Удалить чат',
+    'remove_chat' => 'Убрать из списка',
     'remove_chat_confirm' => 'Убрать этот диалог из списка? История сообщений будет сохранена.',
     'delete_message' => 'Удалить сообщение',
     'delete_confirm' => 'Удалить это сообщение?',
@@ -82,6 +82,9 @@ return [
     'notification_sound_off' => 'Звуковые оповещения: выкл',
 
     'close' => 'Закрыть',
+    'phone' => 'Телефон',
+    'phone_missing' => 'не указан',
+    'phone_unverified' => 'не подтверждён',
 
     'search_placeholder' => 'Поиск…',
 

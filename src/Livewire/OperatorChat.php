@@ -550,6 +550,27 @@ class OperatorChat extends Component
     }
 
     /**
+     * Кнопка «Запросить контакт» нужна, пока телефон собеседника не подтверждён.
+     *
+     * Подтверждённым считается только номер из подписанного контакта: адаптер
+     * `laravel-max-client` пишет его в `max_users.phone` и ставит
+     * `phone_verified_at`. Номер, заполненный другим путём, доверия не даёт —
+     * его нельзя считать верным, поэтому кнопка остаётся доступной и позволяет
+     * запросить подтверждение.
+     */
+    #[Computed]
+    public function canRequestContact(): bool
+    {
+        $chatUser = $this->activeConversation()?->interlocutor();
+
+        if ($chatUser === null) {
+            return false;
+        }
+
+        return blank($chatUser->phone) || $chatUser->phone_verified_at === null;
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     #[Computed]

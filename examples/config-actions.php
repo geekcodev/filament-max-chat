@@ -10,12 +10,12 @@ use GeekCo\LaravelMaxClient\Models\MaxUser;
 
 return [
     'actions' => [
-        // Кнопки в шапке чата (рядом с "Удалить чат"/"Очистить историю")
+        // Кнопки в шапке чата (рядом с "Убрать из списка"/"Очистить историю")
         'header' => [
             [
                 'label' => 'Создать заявку',
                 'icon' => 'heroicon-o-document-plus',
-                'class' => 'shrink-0 rounded-md p-1.5 text-gray-950 hover:bg-primary-100 hover:text-primary-600 dark:text-white dark:hover:bg-primary-950 dark:hover:text-primary-400',
+                'class' => 'shrink-0 inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50/60 px-1.5 text-primary-600 transition hover:border-primary-300 hover:bg-primary-100 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-400 dark:hover:bg-primary-500/20 dark:hover:text-primary-300',
                 'url' => function (?MaxChat $chat, ?MaxUser $chatUser) {
                     if ($chat === null) {
                         return '#';
