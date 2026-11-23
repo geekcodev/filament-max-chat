@@ -30,9 +30,9 @@
 `composer show geekcodev/max-php-client` (по одному пакету за раз: два аргумента `composer show` не принимает), релизные
 теги — `git tag --sort=-v:refname` здесь и в соседних `../laravel-max-client`, `../max-php-client`.
 
-Целевые constraints — `geekcodev/laravel-max-client: ^2.0` и `geekcodev/max-php-client: ^2.0` (типизированные события
-MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ставит обе зависимости как `dev-new` из Packagist; path-repositories
-не используются. Фактически установленную версию всегда сверяй `composer show geekcodev/laravel-max-client` и
+Constraints — `geekcodev/laravel-max-client: ^2.0` и `geekcodev/max-php-client: ^2.0` (типизированные события MAX); ядро
+и адаптер выпущены тегом `v2.0.0`, `dev-new` из ветки `new` больше не используется, path-repositories нет. Фактически
+установленную версию всегда сверяй `composer show geekcodev/laravel-max-client` и
 `composer show geekcodev/max-php-client`: расхождение даёт красный Gate (PHPStan, тесты). Release notes перехода на
 типизированную модель — `.agents/release/RELEASE_NOTES_v2.0.0.md`.
 
@@ -92,8 +92,10 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 7. Текст в Markdown-файлах (AGENTS.md, README.md, release-notes, планы, журнал) пиши как человек: связный текст, абзацы,
    а не сплошные списки из буллетов. Списки — только когда действительно перечисляешь однородные пункты (Gate, gotchas,
    чек-лист).
-8. `.env.example` — единственный эталон имён переменных плагина; при добавлении новой `FILAMENT_MAX_CHAT_*` переменной
-   синхронизируй его и `config/filament-max-chat.php`. Это эталон имён, а не готовый `.env` для копирования целиком:
+8. `.env.example` — единственный эталон имён переменных плагина; при добавлении новой переменной (`MAX_CHAT_*`,
+   `MAX_PERMISSION_CHAT_*`) синхронизируй его и `config/filament-max-chat.php`. Схема повторяет `laravel-max-client`
+   и `filament-max-broadcasts`: `MAX_` без `FILAMENT_`, права — `MAX_PERMISSION_<RESOURCE>_<ABILITY>`, строки прав —
+   `max_chat.view` / `max_chat.answer`. Это эталон имён, а не готовый `.env` для копирования целиком:
    заданная переменная перекрывает дефолт конфига, а пустое значение булева ключа (`KEY=`) читается как `false`.
 9. Любой ключ перевода, который ты добавил в код, обязан существовать и в `lang/ru`, и в `lang/en` — иначе UI покажет
    сырые ключи, а тесты этого не поймают.
@@ -155,7 +157,7 @@ src/
   Http/Controllers/MaxAttachmentController.php  авторизованная отдача вложений
   Http/Controllers/UnreadCountController.php     JSON-счётчик непрочитанного (HTTP-poll на всех страницах панели)
 tests/                             PHPUnit + Orchestra Testbench
-  Fixtures/                          AdminPanelProvider, TestUser, миграция users, Gate chat.view/chat.answer
+  Fixtures/                          AdminPanelProvider, TestUser, миграция users, Gate max_chat.view/max_chat.answer
   Support/MakesChats.php             фикстуры реестра чатов под схему v1.2.0 (makeChat, linkChatUser, makeChatWithUser)
   Support/InspectsChatSchema.php     чтение внешних ключей таблицы для тестов команды перевода
   Unit/                              сервисы, sanitizer, модели, enums, job, страница, провайдер, слушатель
@@ -174,7 +176,7 @@ phpstan.neon                        level max (Larastan), configDirectories → 
 .php-cs-fixer.dist.php              PSR-12 + declare_strict_types + no_unused_imports (finder: src, tests, config,
                                     database, scripts)
 .gitattributes                      export-ignore для .agents/, tests/, .github/ и dev-конфигов: чистый dist
-.env.example                        эталон имён переменных (FILAMENT_MAX_CHAT_*)
+.env.example                        эталон имён переменных (MAX_CHAT_*, MAX_PERMISSION_CHAT_*)
 ```
 
 `composer.lock`, `.phpunit.cache/`, `.phpstan-cache/`, `vendor/`, `build/` — в `.gitignore`; рабочая память `.agents/`
@@ -229,8 +231,8 @@ phpstan.neon                        level max (Larastan), configDirectories → 
 ## 5. Архитектура и ключевые контракты
 
 - **Подключение**: `->plugin(FilamentMaxChatPlugin::make())` в PanelProvider. Доступ к странице — право
-  `permissions.view` (`chat.view`), отправка ответов — `permissions.answer` (`chat.answer`); права проверяются строкой
-  `$user->can(...)` — совместимо со spatie/laravel-permission и Gate. Оформление навигации и slug — `ui.*`
+  `permissions.view` (`max_chat.view`), отправка ответов — `permissions.answer` (`max_chat.answer`); права проверяются
+  строкой `$user->can(...)` — совместимо со spatie/laravel-permission и Gate. Оформление навигации и slug — `ui.*`
   (`navigation_group`, `navigation_icon`, `navigation_sort`, `navigation_label`, `title`, `slug`).
 - **Входящие сообщения**: по умолчанию плагин сам слушает `MaxUpdateReceived` (регистрирует слушателя
   `HandleIncomingMaxUpdate` в `boot()`, пока `updates.auto_handle` не выключен) и вызывает

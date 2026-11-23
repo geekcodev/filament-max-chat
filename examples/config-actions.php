@@ -65,7 +65,7 @@ return [
                         'chat_id' => $chat?->chat_id,
                     ]);
                 },
-                'permission' => 'chat.answer',
+                'permission' => 'max_chat.answer',
             ],
         ],
     ],

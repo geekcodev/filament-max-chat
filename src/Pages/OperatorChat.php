@@ -17,7 +17,7 @@ class OperatorChat extends Page
     public static function canAccess(): bool
     {
         return (bool) auth()->user()?->can(
-            config()->string('filament-max-chat.permissions.view', 'chat.view'),
+            config()->string('filament-max-chat.permissions.view', 'max_chat.view'),
         );
     }
 

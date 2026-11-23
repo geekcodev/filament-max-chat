@@ -1,0 +1,54 @@
+---
+tags: [ env, naming, permissions, config, docs, release-v2, gate, ci-sim ]
+date: 2026-11-23
+---
+
+# Нейминг переменных окружения и прав под соседние пакеты
+
+## Проблема
+
+Имена переменных плагина расходились с `laravel-max-client` (`MAX_*`) и `filament-max-broadcasts`
+(`MAX_BROADCASTS_*`, `MAX_PERMISSION_BROADCASTS_*`): чат использовал префикс `FILAMENT_MAX_CHAT_*`, а права по умолчанию
+были `chat.view` / `chat.answer` без общего с соседями ресурсного префикса.
+
+## Решение
+
+Схема приведена к соседям: настройки — `MAX_CHAT_*`, права — `MAX_PERMISSION_<RESOURCE>_<ABILITY>`
+(`MAX_PERMISSION_CHAT_VIEW`, `MAX_PERMISSION_CHAT_ANSWER`), строки прав по умолчанию — `max_chat.view` /
+`max_chat.answer`. Право просмотра намеренно общее с реестром `max_chat.view` из адаптера; отправка ответов остаётся
+отдельной. Переименование жёсткое, без fallback: v2.0.0 ещё не выпущен, поэтому старые имена не поддерживаются.
+
+Имена с уточнением домена получили только вложенные группы: канал — `MAX_CHAT_BROADCAST_CHANNEL`, вложения —
+`MAX_CHAT_ATTACHMENTS_*`, `login_url` / `unread_count_uri` — `MAX_CHAT_ROUTE_*`. Ключи конфига не менялись.
+
+Затронуты `config/filament-max-chat.php`, `.env.example`, фолбэки в `Livewire/OperatorChat` и `Pages/OperatorChat`,
+`Gate::define` в `tests/TestCase.php`, фикстура права в `OperatorChatTest`, примеры `examples/`, README (обзор,
+установка, конфигурация, email, новый раздел «Обновление до v2.0.0»), AGENTS.md (правило 8, §4, §5) и release notes
+v2.0.0.
+
+В тот же день отмечены выполненными пункты планов по переходу на v2: `v2.0.0` ядра `max-php-client` и адаптера
+`laravel-max-client` выпущены, `composer.json` переведён на `^2.0`, серверная проверка вебхуков в тестовом проекте
+пройдена. Обновлены `plans/2026-11-17-core-v2-sync.md`, `plans/2026-11-20-before-v2.0-release.md`, §1.13 основного плана
+и release notes (снят статус черновика). Выпуск самого плагина `v2.0.0` остаётся за пользователем.
+
+## Тесты
+
+Отдельные тесты не добавлялись: изменились имена и значения по умолчанию, а не поведение. Существующие 384 теста
+проходят, включая fail-closed проверки страницы, вложений и счётчика по обновлённому `max_chat.view`.
+
+## Нюансы
+
+- Если у хоста опубликован конфиг, его `permissions.view` / `permissions.answer` содержат старые значения — их нужно
+  обновить или опубликовать конфиг заново; ключи не переименовывались.
+- Ролям нужно выдать новые строки прав: `max_chat.view` / `max_chat.answer`.
+- Право `max_chat.view` совпадает с правом политики реестра чатов адаптера — это осознанное решение пользователя, чтобы
+  просмотр реестра и страницы оператора выдавался одним правом.
+
+## Gate
+
+Локально: lint 0/60 · PHPStan max 0 · PHPUnit 384/384 (978 assertion) · покрытие 97.58% (1409/1444) · audit чист
+(понадобился `COMPOSER_IPRESOLVE=4`, gotcha 11).
+
+Шаг 7 (§7 AGENTS) в `.ci-sim/` без `vendor/` и `composer.lock`: свежий резолв поставил `laravel-max-client` v2.0.0 и
+`max-php-client` v2.0.0 — lint 0/60 · PHPStan max 0 · 384/384 (978 assertion) · покрытие 97.58% · audit чист. Каталог
+удалён. Коммиты не создавались.

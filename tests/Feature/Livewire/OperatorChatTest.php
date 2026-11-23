@@ -1618,7 +1618,7 @@ class OperatorChatTest extends TestCase
                 'url' => static fn (?MaxChat $context, $chatUser): string => 'https://example.test/leads?chat_id='
                     .($context instanceof MaxChat ? (string) $context->chat_id : ''),
                 'visible' => static fn (?MaxChat $context): bool => $context instanceof MaxChat,
-                'permission' => 'chat.view',
+                'permission' => 'max_chat.view',
             ],
         ]);
 

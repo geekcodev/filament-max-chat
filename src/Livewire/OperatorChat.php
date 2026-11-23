@@ -534,12 +534,12 @@ class OperatorChat extends Component
 
     private function viewPermission(): string
     {
-        return config()->string('filament-max-chat.permissions.view', 'chat.view');
+        return config()->string('filament-max-chat.permissions.view', 'max_chat.view');
     }
 
     private function answerPermission(): string
     {
-        return config()->string('filament-max-chat.permissions.answer', 'chat.answer');
+        return config()->string('filament-max-chat.permissions.answer', 'max_chat.answer');
     }
 
     private function prefetchIncludes(string $trigger): bool
