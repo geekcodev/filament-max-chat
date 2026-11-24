@@ -114,6 +114,36 @@ class OperatorChatTest extends TestCase
         $this->assertDatabaseHas('max_chat_messages', ['max_chat_id' => $chat->chat_id]);
     }
 
+    public function test_remove_chat_requires_manage_permission(): void
+    {
+        $user = $this->createUser(canView: true, canAnswer: true);
+        $chat = $this->createChat();
+
+        Livewire::actingAs($user)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('removeChat')
+            ->assertForbidden();
+
+        $fresh = $chat->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertNotSame(MaxChatStatus::Removed, $fresh->status);
+    }
+
+    public function test_manage_permission_without_answer_can_remove_chat(): void
+    {
+        $manager = $this->createUser(canView: true, canManage: true);
+        $chat = $this->createChat();
+
+        Livewire::actingAs($manager)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('removeChat')
+            ->assertSet('activeChatId', null);
+
+        $fresh = $chat->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertSame(MaxChatStatus::Removed, $fresh->status);
+    }
+
     public function test_select_chat_dispatches_profile_refresh_when_avatar_empty(): void
     {
         $staff = $this->createStaff();
@@ -539,9 +569,9 @@ class OperatorChatTest extends TestCase
         $this->assertDatabaseCount('max_chat_messages', 0);
     }
 
-    public function test_clear_chat_requires_answer_permission(): void
+    public function test_clear_chat_requires_manage_permission(): void
     {
-        $user = $this->createUser(canView: true);
+        $user = $this->createUser(canView: true, canAnswer: true);
         $chat = $this->createChat();
         $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
 
@@ -551,6 +581,22 @@ class OperatorChatTest extends TestCase
             ->assertForbidden();
 
         $this->assertDatabaseCount('max_chat_messages', 1);
+    }
+
+    public function test_manage_permission_without_answer_can_clear_chat(): void
+    {
+        $manager = $this->createUser(canView: true, canManage: true);
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
+
+        $this->mock(MaxChatSender::class)->shouldReceive('deleteMessage')->zeroOrMoreTimes();
+
+        Livewire::actingAs($manager)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('clearChat')
+            ->assertSet('messages', new \Illuminate\Support\Collection());
+
+        $this->assertDatabaseCount('max_chat_messages', 0);
     }
 
     public function test_clear_chat_is_noop_without_active_chat(): void
@@ -619,9 +665,9 @@ class OperatorChatTest extends TestCase
         $this->assertDatabaseMissing('max_chat_messages', ['id' => $message->id]);
     }
 
-    public function test_delete_message_requires_answer_permission(): void
+    public function test_delete_message_requires_manage_permission(): void
     {
-        $user = $this->createUser(canView: true);
+        $user = $this->createUser(canView: true, canAnswer: true);
         $chat = $this->createChat();
         $message = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
 
@@ -631,6 +677,19 @@ class OperatorChatTest extends TestCase
             ->assertForbidden();
 
         $this->assertDatabaseCount('max_chat_messages', 1);
+    }
+
+    public function test_manage_permission_without_answer_can_delete_message(): void
+    {
+        $manager = $this->createUser(canView: true, canManage: true);
+        $chat = $this->createChat();
+        $message = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Удаляемое');
+
+        Livewire::actingAs($manager)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('deleteMessage', $message->id);
+
+        $this->assertDatabaseMissing('max_chat_messages', ['id' => $message->id]);
     }
 
     public function test_load_more_messages_prepends_older(): void
@@ -1409,7 +1468,7 @@ class OperatorChatTest extends TestCase
         ]);
     }
 
-    private function createUser(bool $canView = false, bool $canAnswer = false): TestUser
+    private function createUser(bool $canView = false, bool $canAnswer = false, bool $canManage = false): TestUser
     {
         return TestUser::query()->create([
             'name' => 'Тест Юзер',
@@ -1417,12 +1476,13 @@ class OperatorChatTest extends TestCase
             'password' => 'password',
             'can_view_chat' => $canView,
             'can_answer_chat' => $canAnswer,
+            'can_manage_chat' => $canManage,
         ]);
     }
 
     private function createStaff(): TestUser
     {
-        return $this->createUser(canView: true, canAnswer: true);
+        return $this->createUser(canView: true, canAnswer: true, canManage: true);
     }
 
     private function createChat(): MaxChat
@@ -1585,6 +1645,33 @@ class OperatorChatTest extends TestCase
             ->assertSee('aria-label="'.__('filament-max-chat::chat.clear_history').'"', false)
             ->assertSee('border-amber-200', false)
             ->assertSee('border-red-200', false);
+    }
+
+    public function test_header_manage_actions_hidden_without_manage_permission(): void
+    {
+        $user = $this->createUser(canView: true, canAnswer: true);
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
+
+        Livewire::actingAs($user)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertDontSee('aria-label="'.__('filament-max-chat::chat.remove_chat').'"', false)
+            ->assertDontSee('aria-label="'.__('filament-max-chat::chat.clear_history').'"', false)
+            ->assertDontSee(__('filament-max-chat::chat.delete_message'));
+    }
+
+    public function test_header_manage_actions_visible_for_manager_without_answer(): void
+    {
+        $manager = $this->createUser(canView: true, canManage: true);
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
+
+        Livewire::actingAs($manager)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('aria-label="'.__('filament-max-chat::chat.remove_chat').'"', false)
+            ->assertSee('aria-label="'.__('filament-max-chat::chat.clear_history').'"', false)
+            ->assertSee(__('filament-max-chat::chat.delete_message'))
+            ->assertSee(__('filament-max-chat::chat.no_answer_permission'));
     }
 
     public function test_header_actions_render_default_bordered_style_and_divider(): void

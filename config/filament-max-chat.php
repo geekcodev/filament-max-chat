@@ -19,6 +19,7 @@ return [
     'permissions' => [
         'view' => env('MAX_PERMISSION_CHAT_VIEW', 'max_chat.view'),
         'answer' => env('MAX_PERMISSION_CHAT_ANSWER', 'max_chat.answer'),
+        'manage' => env('MAX_PERMISSION_CHAT_MANAGE', 'max_chat.manage'),
     ],
 
     /*

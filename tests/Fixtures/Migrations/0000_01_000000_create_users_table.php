@@ -16,6 +16,7 @@ return new class () extends Migration {
             $table->string('password');
             $table->boolean('can_view_chat')->default(false);
             $table->boolean('can_answer_chat')->default(false);
+            $table->boolean('can_manage_chat')->default(false);
             $table->rememberToken();
             $table->timestamps();
         });

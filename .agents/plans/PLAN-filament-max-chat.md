@@ -7,7 +7,8 @@
 > `../max-php-client/docs/api-reference.md`.
 
 Задачи в этом плане переживают одну сессию. Отдельные многошаговые задачи оформляются отдельными файлами
-`plans/YYYY-MM-DD-<слаг>.md`; готовый файл не удаляется, а помечается завершённым.
+`plans/YYYY-MM-DD-<слаг>.md`; завершённый или перенесённый в соседний пакет файл не удаляется, а переезжает в
+`plans/archive/` и остаётся в git.
 
 ---
 
@@ -21,8 +22,8 @@
 **Перенесено 2026-10-02** (вторая сессия того же дня): все три коммита перенесены в рабочее дерево `dev` без коммитов
 (`git cherry-pick -n`, конфликты только в `AGENTS.md` и `README.md`, разрешены вручную). Подробности и оставшиеся
 пункты —
-`plans/2026-10-02-registry-v1-2-transfer-to-dev.md`. Gate на перенесённом состоянии: lint 0 · PHPStan 0 · 224 теста ·
-покрытие 96.98% · audit недоступен (сеть до packagist).
+`plans/archive/2026-10-02-registry-v1-2-transfer-to-dev.md`. Gate на перенесённом состоянии: lint 0 · PHPStan 0 · 224
+теста · покрытие 96.98% · audit недоступен (сеть до packagist).
 
 Что сделано:
 
@@ -230,7 +231,7 @@ unhealthy и перезапускался. Причину подтвердили
 ## 1.12 Партия v1.1.8–v1.1.9: расширяемость и «Запросить контакт»
 
 Состояние на 2026-11-20: выпущено (v1.1.8 и v1.1.9 — 2026-10-29). Работа описана отдельно —
-`plans/2026-10-28-chat-extensibility.md` и сессии `2026-10-28-chat-extensibility-and-request-contact.md`,
+`plans/archive/2026-10-28-chat-extensibility.md` и сессии `2026-10-28-chat-extensibility-and-request-contact.md`,
 `2026-10-29-request-contact-empty-text.md`; здесь только указатель, чтобы основной план не обрывался на v1.1.7.
 
 - [x] стеки `filament-max-chat.header-actions-start`, `header-actions`, `formatting-actions-start`,
@@ -239,14 +240,15 @@ unhealthy и перезапускался. Причину подтвердили
 - [x] системная кнопка «Запросить контакт»: `MaxChatSender::sendRequestContact()`, текст запроса обязателен (MAX отвечал
   `errors.required` на сообщение без текста), право `chat.answer`;
 - [x] папка `examples/`, feature- и unit-тесты, покрытие 97.65% на партии;
-- [ ] опционально: право `chat.manage` в `config/filament-max-chat.php`. Было шагом 5 плана расширяемости, в код не
-  вошло; в конфиге только `view` и `answer`, README это право не обещает. Решать по запросу, не блокирует v2.0.
+- [x] право `max_chat.manage` реализовано 2026-11-23 по решению пользователя: `permissions.manage` в конфиге, env
+  `MAX_PERMISSION_CHAT_MANAGE`; закрывает скрытие чата из списка, очистку истории и удаление сообщений (кнопки скрыты,
+  серверные вызовы отвечают 403). Отправка ответов и запрос контакта остались за `max_chat.answer`.
 
 ## 1.13 Подготовка v2.0.0 (типизированные события MAX)
 
 Состояние на 2026-11-23: код, тесты и документация готовы, `max-php-client` и `laravel-max-client` выпущены тегом
 `v2.0.0`, `composer.json` переведён на `^2.0`, серверная проверка вебхуков пройдена; остался выпуск плагина `v2.0.0`.
-Подробности — `plans/2026-11-17-core-v2-sync.md`, release notes `release/RELEASE_NOTES_v2.0.0.md`, сессия
+Подробности — `plans/archive/2026-11-17-core-v2-sync.md`, release notes `release/RELEASE_NOTES_v2.0.0.md`, сессия
 `2026-11-17-core-v2-sync.md`. Чек-лист выпуска — `plans/2026-11-20-before-v2.0-release.md`.
 
 - [x] `HandleIncomingMaxUpdate` и `MaxMessageService` на подтипах `Update`; `findByMaxMessageId()` принимает
@@ -290,7 +292,7 @@ unhealthy и перезапускался. Причину подтвердили
   `OperatorChatTest`, примеры `examples/`;
 - [x] README (обзор, установка, конфигурация, email, раздел «Обновление до v2.0.0»), AGENTS.md (правило 8, §4, §5),
   release notes v2.0.0 (BC);
-- [x] Gate 1–6: lint 0/60, PHPStan max 0, PHPUnit 384/978, покрытие 97.58%, audit чист;
+- [x] Gate 1–6: lint 0/60, PHPStan max 0, PHPUnit 390/995, покрытие 97.58%, audit чист;
 - [x] Gate 7: `.ci-sim/` без `vendor/` и `composer.lock`, свежий резолв поставил `laravel-max-client` и
   `max-php-client` v2.0.0 — lint 0/60, PHPStan max 0, 384 теста / 978 утверждений, покрытие 97.58%, audit чист; каталог
   удалён.
@@ -300,8 +302,8 @@ unhealthy и перезапускался. Причину подтвердили
 - [x] Коммит перенесённого кода в `dev` и релиз v1.1.0 — выпущено 2026-10-02, дальше вышли v1.1.1–v1.1.9 (сверено
   2026-11-20 по тегам);
 - [x] `composer security-audit` — прогнан 2026-11-20 в dev-контейнере: уязвимостей нет;
-- [ ] Мёртвый ключ `fallback_user` в `lang/ru/chat.php:46` и `lang/en/chat.php:46`: в коде не читается, поведение
-  fallback повторяет `MaxChat::displayName()`. Удалить из обоих файлов или вернуть в модель — решить до v2.0.
+- [x] Мёртвый ключ `fallback_user` удалён из `lang/ru/chat.php` и `lang/en/chat.php` (2026-11-23): в коде не читался,
+  поведение fallback и так задаёт `MaxChat::displayName()`.
 
 ## 1.1 Чаты без собеседника в реестре (группа, канал, `max_chat_users` не синхронизирован)
 
@@ -316,7 +318,7 @@ unhealthy и перезапускался. Причину подтвердили
 - [x] `searchConversations()` на `LEFT JOIN` — чат без участников находится по тексту сообщений;
 - [x] UI: `senderFallbackName()` по типу чата, пустая карточка собеседника не рисуется, ключи в `lang/ru` и `lang/en`;
 - [x] `README.md`, `AGENTS.md`, release notes и файл сессии синхронизированы;
-- [x] Перенести план `plans/2026-10-02-laravel-max-client-chat-member-sync.md` в `laravel-max-client` — сделано
+- [x] Перенести план `plans/archive/2026-10-02-laravel-max-client-chat-member-sync.md` в `laravel-max-client` — сделано
   2026-10-16, файл лежит в `.agents/plans/` адаптера;
 - [ ] Реализовать в адаптере `syncChatMembers()`, обработку `user_added`/`user_removed` и команду
   `max-chat:sync-members`. Статус на 2026-11-20: не начат — в `src/` адаптера нет ни `syncChatMembers()`, ни
@@ -332,7 +334,7 @@ unhealthy и перезапускался. Причину подтвердили
   (`max:subscribe`) — пакет их не трогает. План адаптера закрыт:
   `../laravel-max-client/.agents/plans/2026-10-15-webhook-update-types.md`.
 
-Историческая справка: план по `storeIncomingForUser` — `plans/2026-09-03-store-incoming-for-user.md` (завершён,
+Историческая справка: план по `storeIncomingForUser` — `plans/archive/2026-09-03-store-incoming-for-user.md` (завершён,
 реализован коммитом `b53189c`).
 
 ## 2. Регрессия PHPStan на зависимостях и в условиях CI
@@ -341,17 +343,13 @@ unhealthy и перезапускался. Причину подтвердили
   там `composer install` и весь Gate (gotcha 14). Проверка нужна, потому что локальный lock скрывает дрейф
   Filament/Livewire/Larastan — и не зря: на свежем резолве (Larastan 3.12.2 вместо 3.11.0) красным оказался
   `View::make()` в `FilamentMaxChatPlugin` (аргумент не `view-string`), локально этот баг не воспроизводился;
-- [ ] Убедиться, что `reportUnmatchedIgnoredErrors: false` действительно понадобился: если в условиях CI хелперные
-  ошибки из `tests/` не возникают — запись в `ignoreErrors` можно сузить, production-ошибки туда не добавлять. На
-  2026-11-20 в `phpstan.neon` только две записи: хелперы из `tests/` и `view()` в `OperatorChat.php`; вопрос снимается
-  после закрытия следующего пункта и прогона в `.ci-sim/`;
-- [ ] Закрыть запись `ignoreErrors` про `view()` в `src/Livewire/OperatorChat.php` (ошибка живая, ignore её прячет):
-  типизировать вызов, а не оставлять подавление в конфиге — gotcha 15 и §5 «Соглашения» это запрещают. Способ, которым
-  закрыт такой же случай в `FilamentMaxChatPlugin`, — именованная переменная с `@var view-string`. На 2026-11-20 литерал
-  `view('filament-max-chat::components.operator-chat')` стоит в строке 62, подавление на месте;
-- [ ] `composer coverage` в CI уже переведён на `coverage: xdebug`; проверить, что порог 95% достижим после слияния
-  ветки 1.2, иначе сначала закрыть тестами непокрытые ветки, а не снижать порог. На 2026-11-20 порог держится с запасом:
-  97.57% на ветке `new` (371 тест) и 97.65% в v1.1.8, CI на `main` зелёный; повторная проверка — в чек-листе перед v2.0.
+- [x] `reportUnmatchedIgnoredErrors: false` проверен 2026-11-23 в `.ci-sim/` на свежем резолве v2.0.0: с настройкой по
+  умолчанию PHPStan зелёный, значит запись про хелперы из `tests/` востребована — ошибки реально возникают. Настройка
+  оставлена как защита от дрейфа версий (gotcha 15); в `ignoreErrors` теперь только эта запись, production-ошибок нет;
+- [x] запись `ignoreErrors` про `view()` в `src/Livewire/OperatorChat.php` закрыта 2026-11-23: имя вида вынесено в
+  переменную с `/** @var view-string */`, как в `FilamentMaxChatPlugin`, запись из `phpstan.neon` удалена;
+- [x] `composer coverage` после слияния v2: порог 95% держится с запасом — 97.58% (1412/1447) на 2026-11-23 локально и в
+  `.ci-sim/`; непокрытых веток, требующих новых тестов, нет.
 
 ## 3. Release notes и README
 
@@ -371,8 +369,9 @@ unhealthy и перезапускался. Причину подтвердили
 
 **2026-10-02.** Рабочая память перенесена из корня в `.agents/`: 11 release-notes получили имена
 `RELEASE_NOTES_vX.Y.Z.md` и уехали в `.agents/release/`, план `storeIncomingForUser` — в
-`.agents/plans/2026-09-03-store-incoming-for-user.md`, создан `plans/PLAN-filament-max-chat.md`, журнал сессий и файл
-сессии. Каталог остаётся в git, но исключён из архива пакета через `export-ignore` — так память переживает `git clone`
+`.agents/plans/archive/2026-09-03-store-incoming-for-user.md`, создан `plans/PLAN-filament-max-chat.md`, журнал сессий и
+файл сессии. Каталог остаётся в git, но исключён из архива пакета через `export-ignore` — так память переживает
+`git clone`
 и не попадает в дистрибутив Packagist (решение пользователя, по образцу `filament-max-users`).
 
 **2026-10-02.** Constraint `laravel-max-client` намеренно не поднят до `^1.2.0` в этой сессии: пока перевод не слит,
@@ -497,7 +496,8 @@ gotcha 24.
 **2026-10-20 (пол ядра ^1.1.11, contact без `hash`).** Выпущено ядро `max-php-client` v1.1.11: официальная спека MAX
 делает `ContactAttachmentPayload.hash` nullable, а гидрация требовала строку — webhook с контактом без `hash` ронялся на
 декодировании, контроллер вебхука отвечал 400 `invalid_payload`, и контакт не появлялся в чате (регрессия из
-хост-приложения, диагностирована 2026-10-19, см. план `2026-10-19-contact-hash-followup.md`). Constraint плагина поднят
+хост-приложения, диагностирована 2026-10-19, см. план `plans/archive/2026-10-19-contact-hash-followup.md`). Constraint
+плагина поднят
 `^1.1.10` → `^1.1.11`, добавлен сквозной feature-тест `ContactWithoutHashWebhookTest` (сырой JSON → `WebhookHandler` →
 слушатель → карточка в ленте). Стикер диагностирован как заглушка на стороне MAX-CDN (`/stub/` в URL) — плагин ни при
 чём, правок нет; опросы (`type: "poll"`) отложены. Правки входят в партию v1.1.7 (release notes в работе, релиз ждёт
@@ -537,4 +537,12 @@ gotcha 26 в AGENTS.md. `ChatStatus::Suspended` ядра плагину не г�
 серверная проверка вебхуков и `dev-new` → `^2.0`. Отдельно зафиксировано расхождение с планом расширяемости: право
 `chat.manage` в конфиг не добавлялось, README его не обещает. Выпускной чек-лист вынесен в
 `plans/2026-11-20-before-v2.0-release.md`.
+
+**2026-11-23 (закрытие технического долга).** `view()` в `Livewire/OperatorChat` типизирован переменной с
+`/** @var view-string */`, запись `ignoreErrors` удалена; `reportUnmatchedIgnoredErrors: false` проверен на чистом
+резолве v2.0.0 — с настройкой по умолчанию PHPStan зелёный, значит запись про хелперы из `tests/` востребована, а
+настройка остаётся защитой от дрейфа версий (gotcha 15). Мёртвый ключ `fallback_user` удалён из `lang/ru` и `lang/en`.
+Право `max_chat.manage` добавлено по решению пользователя: необратимые действия (скрытие чата, очистка истории, удаление
+сообщения) вынесены из `max_chat.answer` в отдельное право, кнопки скрыты, серверные вызовы отвечают 403. Покрытие после
+слияния v2 подтверждено: 97.58% (1410/1445) при пороге 95%.
 

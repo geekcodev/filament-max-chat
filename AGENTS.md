@@ -95,8 +95,9 @@ Constraints — `geekcodev/laravel-max-client: ^2.0` и `geekcodev/max-php-clien
 8. `.env.example` — единственный эталон имён переменных плагина; при добавлении новой переменной (`MAX_CHAT_*`,
    `MAX_PERMISSION_CHAT_*`) синхронизируй его и `config/filament-max-chat.php`. Схема повторяет `laravel-max-client`
    и `filament-max-broadcasts`: `MAX_` без `FILAMENT_`, права — `MAX_PERMISSION_<RESOURCE>_<ABILITY>`, строки прав —
-   `max_chat.view` / `max_chat.answer`. Это эталон имён, а не готовый `.env` для копирования целиком:
-   заданная переменная перекрывает дефолт конфига, а пустое значение булева ключа (`KEY=`) читается как `false`.
+   `max_chat.view` / `max_chat.answer` / `max_chat.manage`. Это эталон имён, а не готовый `.env` для копирования
+   целиком: заданная переменная перекрывает дефолт конфига, а пустое значение булева ключа (`KEY=`) читается как
+   `false`.
 9. Любой ключ перевода, который ты добавил в код, обязан существовать и в `lang/ru`, и в `lang/en` — иначе UI покажет
    сырые ключи, а тесты этого не поймают.
 10. По завершении каждой сессии заноси итог по формату из 4.1: строка в `.agents/journals/JOURNAL.md` + файл в
@@ -157,7 +158,7 @@ src/
   Http/Controllers/MaxAttachmentController.php  авторизованная отдача вложений
   Http/Controllers/UnreadCountController.php     JSON-счётчик непрочитанного (HTTP-poll на всех страницах панели)
 tests/                             PHPUnit + Orchestra Testbench
-  Fixtures/                          AdminPanelProvider, TestUser, миграция users, Gate max_chat.view/max_chat.answer
+  Fixtures/                          AdminPanelProvider, TestUser, миграция users, Gate max_chat.view/answer/manage
   Support/MakesChats.php             фикстуры реестра чатов под схему v1.2.0 (makeChat, linkChatUser, makeChatWithUser)
   Support/InspectsChatSchema.php     чтение внешних ключей таблицы для тестов команды перевода
   Unit/                              сервисы, sanitizer, модели, enums, job, страница, провайдер, слушатель
@@ -165,7 +166,7 @@ tests/                             PHPUnit + Orchestra Testbench
                                      MaxChatMessagesSchema, ChatMessagesSchemaRepoint, MaxChatUpgradeCommand,
                                      MigrationOrder (полоса миграций и порядок FK по исходникам)
 scripts/check-coverage.php           проверка порога покрытия (≥95% строк) по build/coverage.xml
-.agents/                            рабочая память проекта: plans/, release/, journals/{JOURNAL.md, sessions/} (см. 4.1)
+.agents/                            рабочая память проекта: plans/{,archive/}, release/, journals/{JOURNAL.md, sessions/} (см. 4.1)
 .github/workflows/ci.yml             один job: lint → phpstan → phpunit + coverage gate → audit
 Dockerfile                          PHP 8.4 (ghcr.io/geekcodev/php:8.4-bookworm) + опциональный Xdebug
 docker-compose.yml                  сервис app, user 1000:1000, volume ./, XDEBUG_MODE=coverage
@@ -193,7 +194,8 @@ phpstan.neon                        level max (Larastan), configDirectories → 
 
 ```
 .agents/
-  plans/                           многошаговые планы
+  plans/                           активные многошаговые планы
+  plans/archive/                   завершённые и перенесённые в соседние пакеты планы
   release/                         release-notes версий
   journals/
     JOURNAL.md                     таблица сессий, новые сверху
@@ -201,7 +203,9 @@ phpstan.neon                        level max (Larastan), configDirectories → 
 ```
 
 - `plans/PLAN-filament-max-chat.md` — активный план проекта: задачи, которые переживают одну сессию; шаги отмечаются в
-  нём, дублировать в другие файлы не надо. Отдельные задачи оформляются как `plans/YYYY-MM-DD-<слаг>.md`.
+  нём, дублировать в другие файлы не надо. Отдельные задачи оформляются как `plans/YYYY-MM-DD-<слаг>.md`. Завершённые
+  планы и планы, перенесённые в соседние пакеты, не удаляются, а лежат в `plans/archive/`: история остаётся в git, а
+  корень `plans/` показывает только актуальную работу.
 - `release/RELEASE_NOTES_vX.Y.Z.md` — release-notes версий, по одной на версию, в своём формате; файлы не удаляются,
   история остаётся в git.
 - `journals/JOURNAL.md` — таблица сессий, новые сверху, колонки `Дата`, `Файл`, `Теги`, `Описание`; в описании — что
@@ -231,8 +235,10 @@ phpstan.neon                        level max (Larastan), configDirectories → 
 ## 5. Архитектура и ключевые контракты
 
 - **Подключение**: `->plugin(FilamentMaxChatPlugin::make())` в PanelProvider. Доступ к странице — право
-  `permissions.view` (`max_chat.view`), отправка ответов — `permissions.answer` (`max_chat.answer`); права проверяются
-  строкой `$user->can(...)` — совместимо со spatie/laravel-permission и Gate. Оформление навигации и slug — `ui.*`
+  `permissions.view` (`max_chat.view`), отправка ответов и запрос контакта — `permissions.answer`
+  (`max_chat.answer`), необратимые действия (скрытие чата, очистка истории, удаление сообщения) — `permissions.manage`
+  (`max_chat.manage`); права проверяются строкой `$user->can(...)` — совместимо со spatie/laravel-permission и Gate.
+  Оформление навигации и slug — `ui.*`
   (`navigation_group`, `navigation_icon`, `navigation_sort`, `navigation_label`, `title`, `slug`).
 - **Входящие сообщения**: по умолчанию плагин сам слушает `MaxUpdateReceived` (регистрирует слушателя
   `HandleIncomingMaxUpdate` в `boot()`, пока `updates.auto_handle` не выключен) и вызывает
@@ -406,7 +412,8 @@ docker compose exec -T app composer security-audit # composer audit
 ## 8. OWASP Top 10 (обязательно при написании кода)
 
 - **A01** — доступ к странице, роуту вложений и счётчика непрочитанного только по правам (`permissions.view`);
-  fail-closed, JSON 401/403 для неавторизованного/без прав, отправка — по `permissions.answer`.
+  fail-closed, JSON 401/403 для неавторизованного/без прав, отправка — по `permissions.answer`, скрытие чата, очистка
+  истории и удаление сообщений — по `permissions.manage`.
 - **A02** — секреты только в env; вложения — вне public-корня.
 - **A03** — HTML операторов санитизируется `TextSanitizer` (whitelist тегов MAX) до сохранения и до отправки;
   Blade-экранирование по умолчанию.

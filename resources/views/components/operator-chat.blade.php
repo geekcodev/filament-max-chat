@@ -180,8 +180,8 @@
                         </div>
                     </div>
                 </div>
-                @if ($this->canAnswer)
-                    @php($headerActions = $this->headerActions)
+                @if ($this->canAnswer || $this->canManage)
+                    @php($headerActions = $this->canAnswer ? $this->headerActions : [])
                     <div class="flex shrink-0 items-center gap-1.5">
                         @stack('filament-max-chat.header-actions-start')
                         @foreach ($headerActions as $action)
@@ -211,26 +211,28 @@
                         @if ($headerActions !== [])
                             <span class="mx-0.5 h-5 w-px bg-gray-200 dark:bg-white/10" aria-hidden="true"></span>
                         @endif
-                        <button
-                            type="button"
-                            wire:click="removeChat"
-                            wire:confirm="{{ __('filament-max-chat::chat.remove_chat_confirm') }}"
-                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-amber-50/60 text-amber-600 transition hover:border-amber-300 hover:bg-amber-100 hover:text-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20 dark:hover:text-amber-300"
-                            title="{{ __('filament-max-chat::chat.remove_chat') }}"
-                            aria-label="{{ __('filament-max-chat::chat.remove_chat') }}"
-                        >
-                            <x-heroicon-o-archive-box-x-mark class="h-5 w-5" />
-                        </button>
-                        <button
-                            type="button"
-                            wire:click="clearChat"
-                            wire:confirm="{{ __('filament-max-chat::chat.clear_confirm') }}"
-                            class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50/60 text-red-600 transition hover:border-red-300 hover:bg-red-100 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20 dark:hover:text-red-300"
-                            title="{{ __('filament-max-chat::chat.clear_history') }}"
-                            aria-label="{{ __('filament-max-chat::chat.clear_history') }}"
-                        >
-                            <x-heroicon-o-trash class="h-5 w-5" />
-                        </button>
+                        @if ($this->canManage)
+                            <button
+                                type="button"
+                                wire:click="removeChat"
+                                wire:confirm="{{ __('filament-max-chat::chat.remove_chat_confirm') }}"
+                                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-amber-50/60 text-amber-600 transition hover:border-amber-300 hover:bg-amber-100 hover:text-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400 dark:hover:bg-amber-500/20 dark:hover:text-amber-300"
+                                title="{{ __('filament-max-chat::chat.remove_chat') }}"
+                                aria-label="{{ __('filament-max-chat::chat.remove_chat') }}"
+                            >
+                                <x-heroicon-o-archive-box-x-mark class="h-5 w-5" />
+                            </button>
+                            <button
+                                type="button"
+                                wire:click="clearChat"
+                                wire:confirm="{{ __('filament-max-chat::chat.clear_confirm') }}"
+                                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50/60 text-red-600 transition hover:border-red-300 hover:bg-red-100 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20 dark:hover:text-red-300"
+                                title="{{ __('filament-max-chat::chat.clear_history') }}"
+                                aria-label="{{ __('filament-max-chat::chat.clear_history') }}"
+                            >
+                                <x-heroicon-o-trash class="h-5 w-5" />
+                            </button>
+                        @endif
                         @stack('filament-max-chat.header-actions')
                     </div>
                 @endif
@@ -267,7 +269,7 @@
                             @if ($isIncoming && $senderUser !== null && ($message->maxChat?->isGroup() ?? false) && filled($senderLabel))
                                 <p class="mb-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">{{ $senderLabel }}</p>
                             @endif
-                            @if ($this->canAnswer)
+                            @if ($this->canManage)
                                 <button
                                     type="button"
                                     wire:click="deleteMessage({{ $message->id }})"

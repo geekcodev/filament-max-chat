@@ -43,8 +43,6 @@ return [
         'open' => 'Открыть на карте',
     ],
 
-    'fallback_user' => 'Пользователь :id',
-
     'empty_conversations' => 'Нет активных диалогов',
     'no_search_results' => 'Ничего не найдено по запросу',
     'select_conversation' => 'Выберите диалог слева',

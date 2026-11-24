@@ -20,8 +20,8 @@ date: 2026-10-02
 ## Решение
 
 `user_id` в `max_chat_messages` стал nullable: отдельная аддитивная миграция `0001_01_01_000003` снимает `NOT NULL`
-(create-миграция осталась с `NOT NULL`, так правка безопасна и для уже установленных баз), `down()` подставляет `chat_id`
-вместо `null` и возвращает ограничение.
+(create-миграция осталась с `NOT NULL`, так правка безопасна и для уже установленных баз), `down()` подставляет
+`chat_id` вместо `null` и возвращает ограничение.
 `storeIncoming()` сохраняет входящее при наличии `chatId` даже без sender,
 `storeOutgoing()` принимает `?int`, а `Livewire\OperatorChat` больше не прекращает запись после успешной отправки при
 `interlocutorId() === null`. Поиск переведён на `LEFT JOIN` к `max_chat_users`/`max_users`, чтобы чат находился по
@@ -29,7 +29,7 @@ date: 2026-10-02
 отправителя» по типу чата, карточка собеседника в шапке не рисуется, когда показывать нечего.
 
 Состав чата остаётся неполным — это зона адаптера. Для него написан переносимый план
-`plans/2026-10-02-laravel-max-client-chat-member-sync.md`: публичный `syncChatMembers(int $chatId)` с пагинацией
+`plans/archive/2026-10-02-laravel-max-client-chat-member-sync.md`: публичный `syncChatMembers(int $chatId)` с пагинацией
 `getChatMembers()`, запись в `max_users` и `max_chat_users`, обработка `user_added`/`user_removed`, фон или троттлинг,
 команда `max-chat:sync-members` для существующих установок и набор тестов.
 
@@ -71,8 +71,8 @@ date: 2026-10-02
 assertion; `composer coverage` — 98.35% строк при пороге 95%. `composer security-audit` — 0 уязвимостей (с
 `COMPOSER_IPRESOLVE=4`; без него curl до Packagist не проходит). Прогнан Gate «в условиях CI» (gotcha 14): копия дерева
 без `vendor/` и `composer.lock` в `.ci-sim/`, свежий резолв (Larastan 3.12.2 против локальных 3.11.0, Filament 5.9.0
-против 5.7.8) — lint 0, PHPStan 0, 251 тест, покрытие 98.35%, audit чист. Именно эта симуляция (теперь обязательный шаг 7 Gate и
-gotcha 14) вскрыла баг:
+против 5.7.8) — lint 0, PHPStan 0, 251 тест, покрытие 98.35%, audit чист. Именно эта симуляция (теперь обязательный шаг
+7 Gate и gotcha 14) вскрыла баг:
 `View::make()` с литералом view-имени падал на `view-string`
 только в свежих версиях Larastan; подавление через `@phpstan-ignore` заменено настоящей типизацией
 `/** @var view-string $notificationScript */`, как требует правило репозитория о запрете ignore в production-коде.

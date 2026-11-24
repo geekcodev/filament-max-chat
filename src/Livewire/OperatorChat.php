@@ -44,6 +44,9 @@ class OperatorChat extends Component
     #[Locked]
     public bool $canAnswer = false;
 
+    #[Locked]
+    public bool $canManage = false;
+
     private ?MaxMessageService $service = null;
 
     private ?TextSanitizer $sanitizer = null;
@@ -59,7 +62,10 @@ class OperatorChat extends Component
 
     public function render(): View
     {
-        return view('filament-max-chat::components.operator-chat');
+        /** @var view-string $view */
+        $view = 'filament-max-chat::components.operator-chat';
+
+        return view($view);
     }
 
     public function mount(?int $chat = null, ?int $chat_id = null): void
@@ -71,6 +77,7 @@ class OperatorChat extends Component
         abort_unless($user !== null && $user->can($this->viewPermission()), 403);
 
         $this->canAnswer = $user->can($this->answerPermission());
+        $this->canManage = $user->can($this->managePermission());
 
         // С v1.2.0 адаптера первичный ключ max_chats — сам chat_id, поэтому
         // `chat` и `chat_id` значат одно и то же; различается только проверка
@@ -123,7 +130,7 @@ class OperatorChat extends Component
     {
         $user = auth()->user();
 
-        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+        abort_unless($user !== null && $user->can($this->managePermission()), 403);
 
         if ($this->activeChatId === null) {
             return;
@@ -140,7 +147,7 @@ class OperatorChat extends Component
     {
         $user = auth()->user();
 
-        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+        abort_unless($user !== null && $user->can($this->managePermission()), 403);
 
         if ($this->activeChatId === null) {
             return;
@@ -181,7 +188,7 @@ class OperatorChat extends Component
     {
         $user = auth()->user();
 
-        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+        abort_unless($user !== null && $user->can($this->managePermission()), 403);
 
         $this->service?->deleteMessage($messageId);
 
@@ -540,6 +547,11 @@ class OperatorChat extends Component
     private function answerPermission(): string
     {
         return config()->string('filament-max-chat.permissions.answer', 'max_chat.answer');
+    }
+
+    private function managePermission(): string
+    {
+        return config()->string('filament-max-chat.permissions.manage', 'max_chat.manage');
     }
 
     private function prefetchIncludes(string $trigger): bool

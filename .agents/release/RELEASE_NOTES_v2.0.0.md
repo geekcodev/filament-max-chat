@@ -34,9 +34,13 @@
 - Constraints: `geekcodev/max-php-client` `^1.1.11` → `^2.0`, `geekcodev/laravel-max-client` `^1.2.3` → `^2.0`.
 - Переменные окружения переименованы под схему `laravel-max-client` и `filament-max-broadcasts`: `FILAMENT_MAX_CHAT_*` →
   `MAX_CHAT_*` (канал — `MAX_CHAT_BROADCAST_CHANNEL`, вложения — `MAX_CHAT_ATTACHMENTS_*`, `login_url` и
-  `unread_count_uri` — `MAX_CHAT_ROUTE_*`), права — `MAX_PERMISSION_CHAT_VIEW` / `MAX_PERMISSION_CHAT_ANSWER`. Строки
-  прав по умолчанию стали `max_chat.view` / `max_chat.answer` вместо `chat.view` / `chat.answer`; `max_chat.view`
-  совпадает с правом реестра чатов адаптера. Старые имена переменных не поддерживаются, ключи конфига не менялись.
+  `unread_count_uri` — `MAX_CHAT_ROUTE_*`), права — `MAX_PERMISSION_CHAT_VIEW` / `MAX_PERMISSION_CHAT_ANSWER` /
+  `MAX_PERMISSION_CHAT_MANAGE`. Строки прав по умолчанию стали `max_chat.view` / `max_chat.answer` вместо `chat.view` /
+  `chat.answer`; `max_chat.view` совпадает с правом реестра чатов адаптера. Старые имена переменных не поддерживаются,
+  ключи конфига не менялись.
+- Новое право `max_chat.manage` (`permissions.manage`, env `MAX_PERMISSION_CHAT_MANAGE`) закрывает необратимые действия:
+  скрытие чата из списка, очистку истории и удаление сообщения. Раньше они проверялись `chat.answer`; после обновления
+  роли без нового права теряют эти кнопки, а серверные вызовы отвечают 403.
 - Публичные методы `MaxMessageService` принимают типизированные подтипы `Update`. Код приложения, передававший плоский
   `Update`, требует правок.
 - `MessageBody::$caption` больше нет: правка сообщения обновляет только текст.
@@ -54,11 +58,12 @@
 - **Карточка контакта**: имя из `max_info`/vCard, телефон из `vcf_info`; неподписанный контакт по-прежнему не
   подтверждается.
 - **Обновление установки**: перенести `FILAMENT_MAX_CHAT_*` на `MAX_CHAT_*` (таблица соответствия — в README, раздел
-  «Обновление до v2.0.0»), выдать ролям `max_chat.view` / `max_chat.answer` и обновить опубликованный конфиг, если он
-  есть.
+  «Обновление до v2.0.0»), выдать ролям `max_chat.view` / `max_chat.answer` / `max_chat.manage` и обновить
+  опубликованный конфиг, если он есть.
 
 ## Качество
 
-Lint 0/60, PHPStan level max 0, PHPUnit 384/384 (978 assertion), покрытие 97.58% строк (1409/1444), `composer audit` 0.
+Lint 0/60, PHPStan level max 0, PHPUnit 390/390 (995 assertions), покрытие 97.58% строк (1412/1447), `composer audit` 0.
 Gate повторён 2026-11-23 на чистом резолве с `v2.0.0` ядра и адаптера. Серверная проверка вебхуков в тестовом проекте
-пройдена.
+пройдена. Технический долг закрыт: `view()` типизирован, `ignoreErrors` сужен до хелперов `tests/`, мёртвый ключ
+`fallback_user` удалён.

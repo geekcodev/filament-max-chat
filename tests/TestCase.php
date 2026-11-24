@@ -43,6 +43,10 @@ abstract class TestCase extends Orchestra
             'max_chat.answer',
             static fn (TestUser $user): bool => $user->can_answer_chat,
         );
+        Gate::define(
+            'max_chat.manage',
+            static fn (TestUser $user): bool => $user->can_manage_chat,
+        );
     }
 
     protected function getPackageProviders($app): array

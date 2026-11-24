@@ -10,15 +10,16 @@ date: 2026-10-02
 `AGENTS.md` пакета (150 строк) описывал только устройство плагина и не описывал процесс: не было рабочего журнала в
 едином месте, раздела «Частые ошибки», чек-листа перед завершением задачи, гейта покрытия и правил git. Release notes и
 план лежали в корне как `RELEASE-vX.Y.Z.md` и `PLAN-*.md` — двенадцать файлов в корне, все вне git. Гейт покрытия в
-`.agents/plans/2026-09-03-store-incoming-for-user.md` был записан как обязательный шаг, но ни `composer coverage`, ни
-`scripts/check-coverage.php`, ни драйвера покрытия в CI не существовало — падение покрытия было бы незаметным.
+`.agents/plans/archive/2026-09-03-store-incoming-for-user.md` был записан как обязательный шаг, но ни
+`composer coverage`, ни `scripts/check-coverage.php`, ни драйвера покрытия в CI не существовало — падение покрытия было
+бы незаметным.
 
 Попутно выяснилось, что Gate на `dev` красный, и это никем не зафиксировано.
 
 ## Решение
 
 - **Рабочая память в `.agents/`**: `plans/` (активный `PLAN-filament-max-chat.md` и
-  `2026-09-03-store-incoming-for-user.md`),
+  `plans/archive/2026-09-03-store-incoming-for-user.md`),
   `release/RELEASE_NOTES_vX.Y.Z.md` (11 файлов переехали из корня), `journals/{JOURNAL.md,sessions/}`. Каталог остаётся
   в git, но исключён из архива пакета через `export-ignore` в `.gitattributes` — память переживает `git clone` и не
   попадает в дистрибутив. Отдельные файлы сессии по датам до 2026-10-02 не восстанавливались: в `JOURNAL.md` они
@@ -59,13 +60,13 @@ date: 2026-10-02
   `COMPOSER_IPRESOLVE=4` — gotcha 11 дополнен этим случаем.
 - Придуманная команда `composer show pkg1 pkg2` не работает: `composer show` принимает один пакет. В `AGENTS.md` §1
   исправлено на два отдельных вызова. Новый CI проверен разбором YAML: единственный job `quality`, триггеры `push` и
-  `pull_request`; `composer validate` — `composer.json` валиден (расхождение с локальным `composer.lock` существовало
-  до сессии и на код не влияет: скрипты в content-hash не входят).
+  `pull_request`; `composer validate` — `composer.json` валиден (расхождение с локальным `composer.lock` существовало до
+  сессии и на код не влияет: скрипты в content-hash не входят).
 - **Ошибка в моём CI, пойманная пользователем в IDE**: в job `quality` оказалось два ключа `name:` — описание job и
   `PHP ${{ matrix.php }}` из матрицы. GitHub Actions такую ошибку не принимает, а `yaml.safe_load` прошёл молча (PyYAML
   дубликаты перезатирает). Лишний `name:` убран, оставлено имя из матрицы — как в `filament-max-users`; ключ кэша
-  дополнен префиксом `${{ runner.os }}`, как в `laravel-max-client`. Проверка переделана на строгий загрузчик с
-  поиском дубликатов, gotcha 19 добавлен в `AGENTS.md`.
+  дополнен префиксом `${{ runner.os }}`, как в `laravel-max-client`. Проверка переделана на строгий загрузчик с поиском
+  дубликатов, gotcha 19 добавлен в `AGENTS.md`.
 - В `phpstan.neon` помимо хелперов из `tests/` есть живая запись `ignoreErrors` про `view()` в
   `src/Livewire/OperatorChat.php` — подавление production-ошибки в обход gotcha 15. Не исправлялось (ветка 1.2 не
   слита), но комментарий в конфиге приведён в соответствие с фактом, а закрытие вынесено отдельным пунктом в план.
