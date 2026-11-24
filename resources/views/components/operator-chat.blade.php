@@ -269,16 +269,32 @@
                             @if ($isIncoming && $senderUser !== null && ($message->maxChat?->isGroup() ?? false) && filled($senderLabel))
                                 <p class="mb-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">{{ $senderLabel }}</p>
                             @endif
-                            @if ($this->canManage)
-                                <button
-                                    type="button"
-                                    wire:click="deleteMessage({{ $message->id }})"
-                                    wire:confirm="{{ __('filament-max-chat::chat.delete_confirm') }}"
-                                    class="absolute -top-2 -right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-400 opacity-0 shadow-sm transition-opacity pointer-events-none hover:bg-red-500 hover:text-white group-hover:opacity-100 group-hover:pointer-events-auto dark:bg-gray-700 dark:text-gray-500 dark:hover:bg-red-600"
-                                    title="{{ __('filament-max-chat::chat.delete_message') }}"
-                                >
-                                    <x-heroicon-o-trash class="h-3 w-3" />
-                                </button>
+                            @if (($this->canAnswer && filled($message->message_id)) || $this->canManage)
+                                <div class="pointer-events-auto absolute -top-2 -right-2 z-10 flex gap-1 opacity-100 transition-opacity md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100">
+                                    @if ($this->canAnswer && filled($message->message_id))
+                                        <button
+                                            type="button"
+                                            wire:click="startReply({{ $message->id }})"
+                                            class="flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-400 shadow-sm transition-colors hover:bg-primary-500 hover:text-white dark:bg-gray-700 dark:text-gray-500 dark:hover:bg-primary-600"
+                                            title="{{ __('filament-max-chat::chat.reply') }}"
+                                            aria-label="{{ __('filament-max-chat::chat.reply') }}"
+                                        >
+                                            <x-heroicon-o-arrow-uturn-left class="h-3 w-3" />
+                                        </button>
+                                    @endif
+                                    @if ($this->canManage)
+                                        <button
+                                            type="button"
+                                            wire:click="deleteMessage({{ $message->id }})"
+                                            wire:confirm="{{ __('filament-max-chat::chat.delete_confirm') }}"
+                                            class="flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-400 shadow-sm transition-colors hover:bg-red-500 hover:text-white dark:bg-gray-700 dark:text-gray-500 dark:hover:bg-red-600"
+                                            title="{{ __('filament-max-chat::chat.delete_message') }}"
+                                            aria-label="{{ __('filament-max-chat::chat.delete_message') }}"
+                                        >
+                                            <x-heroicon-o-trash class="h-3 w-3" />
+                                        </button>
+                                    @endif
+                                </div>
                             @endif
                             @foreach ($message->attachments() as $index => $attachment)
                                 @php($type = $attachment['type'] ?? '')
@@ -369,6 +385,20 @@
                                     <p class="italic opacity-80">{{ __('filament-max-chat::chat.preview.file_unavailable') }}</p>
                                 @endif
                             @endforeach
+                            @php($linkedMessage = $message->linkedMessage())
+                            @if ($linkedMessage !== null)
+                                @php($linkedType = ($linkedMessage['type'] ?? '') === 'forward' ? 'forward' : 'reply')
+                                @php($linkedSender = is_string($linkedMessage['sender_name'] ?? null) ? $linkedMessage['sender_name'] : null)
+                                @php($linkedPreview = $message->linkedPreview())
+                                <div class="mb-1.5 max-w-full rounded-md border-l-2 border-black/20 bg-black/5 px-2 py-1 text-xs dark:border-white/30 dark:bg-white/10">
+                                    <p class="font-medium">
+                                        {{ $linkedType === 'forward' ? __('filament-max-chat::chat.forwarded_from') : __('filament-max-chat::chat.reply_to') }}@if (filled($linkedSender)): {{ $linkedSender }}@endif
+                                    </p>
+                                    @if (filled($linkedPreview))
+                                        <p class="mt-0.5 max-h-16 overflow-hidden whitespace-pre-wrap break-words opacity-80">{{ $linkedPreview }}</p>
+                                    @endif
+                                </div>
+                            @endif
                             @if ($message->direction === MaxMessageDirection::Out && $message->sender_type === MaxMessageSender::Operator && filled($message->text))
                                 <div class="whitespace-pre-line break-words [&_a]:underline">{!! $message->text !!}</div>
                             @elseif (filled($message->text))
@@ -387,6 +417,27 @@
 
             <div class="shrink-0 border-t border-gray-100 p-3 dark:border-white/5">
                 @if ($this->canAnswer)
+                    @php($replyTarget = $this->replyTarget)
+                    @if ($replyTarget !== null)
+                        @php($replyTargetSender = $replyTarget->senderName())
+                        <div class="mb-2 flex items-start justify-between gap-2 rounded-md border-l-2 border-primary-400 bg-gray-50 px-2 py-1.5 text-xs dark:bg-white/5">
+                            <div class="min-w-0">
+                                <p class="font-medium text-gray-700 dark:text-gray-200">
+                                    {{ __('filament-max-chat::chat.reply_to') }}@if (filled($replyTargetSender)): {{ $replyTargetSender }}@endif
+                                </p>
+                                <p class="mt-0.5 max-h-12 overflow-hidden whitespace-pre-wrap break-words text-gray-500 dark:text-gray-400">{{ $replyTarget->previewText() }}</p>
+                            </div>
+                            <button
+                                type="button"
+                                wire:click="cancelReply"
+                                class="shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-gray-200"
+                                title="{{ __('filament-max-chat::chat.cancel_reply') }}"
+                                aria-label="{{ __('filament-max-chat::chat.cancel_reply') }}"
+                            >
+                                <x-heroicon-o-x-mark class="h-4 w-4" />
+                            </button>
+                        </div>
+                    @endif
                     <form wire:submit="sendReply" class="space-y-2" x-data="fmcReplyEditor()">
                         <div class="flex flex-wrap items-center gap-1">
                             @stack('filament-max-chat.formatting-actions-start')

@@ -17,6 +17,7 @@ use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChatUser;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\LaravelMaxClient\Support\Logger;
+use GeekCo\MaxPhpClient\Dto\LinkedMessage;
 use GeekCo\MaxPhpClient\Dto\Update\ChatTitleChangedUpdate;
 use GeekCo\MaxPhpClient\Dto\Update\DialogClearedUpdate;
 use GeekCo\MaxPhpClient\Dto\Update\DialogRemovedUpdate;
@@ -81,6 +82,7 @@ class MaxMessageService
             text: $text,
             messageId: $messageId,
             attachments: $this->attachments->storeFromIncoming($update->message->body?->attachments),
+            link: $this->linkedMessageData($update->message->link),
         );
     }
 
@@ -111,7 +113,14 @@ class MaxMessageService
             return null;
         }
 
-        $message->forceFill(['text' => $text])->save();
+        $attributes = ['text' => $text];
+        $link = $this->linkedMessageData($update->message->link);
+
+        if ($link !== null) {
+            $attributes['link'] = $link;
+        }
+
+        $message->forceFill($attributes)->save();
 
         $message = $message->refresh();
 
@@ -296,6 +305,7 @@ class MaxMessageService
      * @param int|null $userId Собеседник; null для чата без собеседника в реестре
      *                         (канал или группа, чей состав ещё не синхронизирован)
      * @param list<StoredAttachment> $attachments
+     * @param array<string, mixed>|null $link связанное сообщение: reply/forward
      */
     public function storeOutgoing(
         ?int $userId,
@@ -305,6 +315,7 @@ class MaxMessageService
         ?int $operatorId = null,
         ?string $messageId = null,
         array $attachments = [],
+        ?array $link = null,
     ): ?MaxMessage {
         $maxChat = $this->upsertChat($userId, $chatId);
 
@@ -317,6 +328,7 @@ class MaxMessageService
             operatorId: $operatorId,
             messageId: $messageId,
             attachments: $attachments,
+            link: $link,
         );
     }
 
@@ -662,7 +674,62 @@ class MaxMessageService
     }
 
     /**
+     * Ответ или пересылка в виде данных для JSON-колонки `link`: только
+     * безопасные скалярные поля, без объектов MAX и без ссылок на чужие файлы.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function linkedMessageData(?LinkedMessage $link): ?array
+    {
+        if (! $link instanceof LinkedMessage) {
+            return null;
+        }
+
+        $sender = $link->sender;
+        $senderName = null;
+
+        if ($sender !== null) {
+            $name = trim((string) $sender->name);
+
+            if ($name === '') {
+                $name = trim($sender->firstName . ' ' . ($sender->lastName ?? ''));
+            }
+
+            if ($name !== '') {
+                $senderName = mb_substr($name, 0, 255);
+            }
+        }
+
+        $text = $link->message?->text;
+
+        if (is_string($text)) {
+            $text = trim($text);
+
+            if ($text === '') {
+                $text = null;
+            } elseif (mb_strlen($text) > 500) {
+                $text = mb_substr($text, 0, 500) . '…';
+            }
+        }
+
+        $attachments = $link->message?->attachments;
+        $attachmentType = is_array($attachments) && isset($attachments[0])
+            ? $attachments[0]->type
+            : null;
+
+        return array_filter([
+            'type' => $link->type->value,
+            'mid' => $link->mid,
+            'sender_id' => $link->senderId,
+            'sender_name' => $senderName,
+            'text' => $text,
+            'attachment_type' => $attachmentType,
+        ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
      * @param list<StoredAttachment> $attachments
+     * @param array<string, mixed>|null $link связанное сообщение: reply/forward
      */
     private function createMessage(
         MaxChat $maxChat,
@@ -673,6 +740,7 @@ class MaxMessageService
         ?int $operatorId = null,
         ?string $messageId = null,
         array $attachments = [],
+        ?array $link = null,
     ): MaxMessage {
         // MAX доставляет апдейты повторно и дублирует своё же событие на
         // исходящее сообщение бота, а идентификатор сообщения уникален внутри
@@ -696,6 +764,7 @@ class MaxMessageService
             'sender_type' => $senderType,
             'text' => $text,
             'attachment' => $attachments,
+            'link' => $link,
             'operator_id' => $operatorId,
         ]);
 

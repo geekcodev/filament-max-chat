@@ -112,7 +112,7 @@ Constraints — `geekcodev/laravel-max-client: ^2.0` и `geekcodev/max-php-clien
 ```
 config/filament-max-chat.php       publishable-конфиг (--tag=filament-max-chat-config)
 database/migrations/               миграции max_chat_messages: create + nullable user_id + индекс непрочитанного +
-                                   notified_at email (loadMigrationsFrom, публикация опциональна)
+                                   notified_at email + link ответа/пересылки (loadMigrationsFrom, публикация опциональна)
 lang/{ru,en}/chat.php              подписи UI страницы чата и email-дайджеста (`mail.*`)
 resources/
   css/filament-max-chat.css        стили чата и бейджа непрочитанного (импорт в теме хоста)
@@ -277,6 +277,15 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   длине, а `url` проходит проверку схемы `http`/`https` (`MaxAttachmentStore::httpUrl()` — тот же фильтр вызывается из
   представления, поэтому `href` сохранённых в обход стора метаданных не становится `javascript:`). Вложение без данных
   даёт подпись-заглушку в ленте, а не пустой пузырь.
+- **Ответы и пересылки**: `message.link` (`LinkedMessage` с типом `reply`/`forward`) сохраняется в JSON-колонке
+  `max_chat_messages.link` в нормализованном виде `type`, `mid`, `sender_id`, `sender_name`, `text`,
+  `attachment_type` (объекты MAX и чужие URL не сохраняются; текст ограничен 500 символами). Лента показывает цитату над
+  сообщением: «Ответ на сообщение» или «Переслано от» с именем автора и коротким текстом либо типом вложения; текст
+  экранируется Blade. `wire:poll`-сверка учитывает `link`, поэтому цитата появляется и без broadcast. Из админки
+  оператор отвечает на сообщение с `message_id`: `startReply()` запоминает цель, форма показывает цитату,
+  `MaxChatSender::sendFormatted()`/`sendAttachments()` получают необязательный `replyToMessageId` и собирают
+  `NewMessageLink(Reply, mid)`, а `storeOutgoing()` сохраняет локальный `link` для мгновенной цитаты. Сообщения без
+  `message_id` (локальные, `storeIncomingForUser`) ответить в MAX не могут, кнопка у них не показывается.
 - **Real-time**: `MaxMessageCreated` (broadcastAs `chat-message.created`), а после правки/удаления/очистки —
   `MaxMessageUpdated` (`chat-message.updated`), `MaxMessageDeleted` (`chat-message.deleted`) и `MaxMessagesCleared`
   (`chat-message.cleared`) в private-канал `broadcast_channel`; удаление диалога — `MaxChatRemoved` (`chat-removed`).
@@ -324,7 +333,7 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   поэтому знаковость проверяется по исходникам миграций (§10 gotcha 16). Идентификаторы **сообщений**, наоборот,
   строковые (`message_id` в MAX — строка) и уникальны только внутри чата, поэтому поиск локального сообщения по апдейту
   всегда идёт по паре «`chat_id` + `message_id» — иначе событие из одного чата перепишет историю другого.
-- **Миграции** грузятся автоматически из пакета (`loadMigrationsFrom`, публикация не нужна). У плагина четыре миграции:
+- **Миграции** грузятся автоматически из пакета (`loadMigrationsFrom`, публикация не нужна). У плагина пять миграций:
   `0000_02_000001_create_max_chat_messages_table.php` — create-миграция под форму реестра v1.2.0 с
   `user_id` **NOT NULL**, и `0000_02_000002_make_max_chat_messages_user_id_nullable.php` — аддитивная миграция,
   снимающая `NOT NULL`: у чата, чей состав в `max_chat_users` ещё не синхронизирован (канал, группа, куда бота только
@@ -337,10 +346,13 @@ phpstan.neon                        level max (Larastan), configDirectories → 
   `Schema::hasIndex`, потому что приложение-хост могло добавить такой же индекс своей миграцией. Четвёртая,
   `0000_02_000004_add_notified_at_to_max_chat_messages.php`, добавляет колонку `notified_at` — отметку об отправленном
   email-напоминании о непрочитанном (guard `hasTable`/`hasColumn`; индекс не создаётся — выборку ведёт составной
-  `(direction, read_at)`, а `notified_at` фильтруется внутри небольшого множества непрочитанных строк). Выполненные
-  миграции нельзя править на месте — новая колонка или новое ограничение добавляются только отдельной аддитивной
-  миграцией, поэтому правка create-миграции допустима лишь пока релиз не опубликован. Переименовывать миграцию можно
-  только вместе с guard `Schema::hasTable()` в `up()`:
+  `(direction, read_at)`, а `notified_at` фильтруется внутри небольшого множества непрочитанных строк). Пятая,
+  `0000_02_000005_add_link_to_max_chat_messages.php`, добавляет nullable JSON-колонку `link` для ответа или пересылки:
+  MAX присылает связанное сообщение в `message.link`, а лента показывает цитату и после перезагрузки. Миграция
+  аддитивная и идемпотентная, guard `hasTable`/`hasColumn`; `down()` удаляет колонку. Выполненные миграции нельзя
+  править на месте — новая колонка или новое ограничение добавляются только отдельной аддитивной миграцией, поэтому
+  правка create-миграции допустима лишь пока релиз не опубликован. Переименовывать миграцию можно только вместе с guard
+  `Schema::hasTable()` в `up()`:
   новое имя числится невыполненным у установки, прошедшей старую версию, то есть переименование без guard ломает ровно
   ту установку, ради которой делается. Миграций, переписывающих данные, у плагина нет. Перенос истории на новую форму
   реестра миграцией **не** делается: `php artisan migrate` проходит целиком до `max:upgrade`, поэтому фаза remap

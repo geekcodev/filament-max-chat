@@ -56,6 +56,10 @@ return [
     'remove_chat_confirm' => 'Remove this conversation from the list? Message history will be kept.',
     'delete_message' => 'Delete message',
     'delete_confirm' => 'Delete this message?',
+    'reply_to' => 'Reply to message',
+    'forwarded_from' => 'Forwarded from',
+    'reply' => 'Reply',
+    'cancel_reply' => 'Cancel reply',
 
     'formatting' => 'Formatting',
     'format_bold' => 'B',

@@ -26,6 +26,7 @@ use GeekCo\MaxPhpClient\Dto\Attachment\InlineKeyboardAttachment;
 use GeekCo\MaxPhpClient\Dto\Attachment\PhotoAttachment;
 use GeekCo\MaxPhpClient\Dto\ContactAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\Keyboard;
+use GeekCo\MaxPhpClient\Dto\LinkedMessage;
 use GeekCo\MaxPhpClient\Dto\Message;
 use GeekCo\MaxPhpClient\Dto\MessageBody;
 use GeekCo\MaxPhpClient\Dto\PhotoAttachmentPayload;
@@ -38,6 +39,7 @@ use GeekCo\MaxPhpClient\Dto\Update\MessageEditedUpdate;
 use GeekCo\MaxPhpClient\Dto\Update\MessageRemovedUpdate;
 use GeekCo\MaxPhpClient\Dto\User as MaxUser;
 use GeekCo\MaxPhpClient\Enum\ChatType;
+use GeekCo\MaxPhpClient\Enum\MessageLinkType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -75,6 +77,88 @@ class MaxMessageServiceTest extends TestCase
         ]);
         $this->assertSame($maxChat->chat_id, $message->max_chat_id);
         $this->assertDatabaseHas('max_chat_users', ['chat_id' => 222, 'user_id' => 111]);
+    }
+
+    public function test_store_incoming_saves_reply_link(): void
+    {
+        $message = app(MaxMessageService::class)->storeIncoming($this->incomingUpdate(
+            text: 'Ответ',
+            link: new LinkedMessage(
+                type: MessageLinkType::Reply,
+                sender: $this->maxUser(),
+                senderId: 111,
+                mid: 'orig-1',
+                message: new MessageBody(mid: 'orig-1', seq: 1, text: 'Исходное сообщение'),
+            ),
+        ));
+
+        $this->assertNotNull($message);
+        $this->assertIsArray($message->link);
+
+        /** @var array<string, mixed> $link */
+        $link = $message->link;
+
+        $this->assertSame('reply', $link['type']);
+        $this->assertSame('orig-1', $link['mid']);
+        $this->assertSame(111, $link['sender_id']);
+        $this->assertSame('Иван Петров', $link['sender_name']);
+        $this->assertSame('Исходное сообщение', $link['text']);
+    }
+
+    public function test_store_incoming_saves_forward_attachment_type(): void
+    {
+        $message = app(MaxMessageService::class)->storeIncoming($this->incomingUpdate(
+            text: 'Смотрите',
+            link: new LinkedMessage(
+                type: MessageLinkType::Forward,
+                sender: null,
+                senderId: null,
+                mid: 'orig-2',
+                message: new MessageBody(
+                    mid: 'orig-2',
+                    seq: 1,
+                    attachments: [new PhotoAttachment(new PhotoAttachmentPayload(
+                        photoId: 1,
+                        token: 'photo-token',
+                        url: 'https://cdn.max.ru/photo.jpg',
+                    ))],
+                ),
+            ),
+        ));
+
+        $this->assertNotNull($message);
+        $this->assertIsArray($message->link);
+
+        /** @var array<string, mixed> $link */
+        $link = $message->link;
+
+        $this->assertSame('forward', $link['type']);
+        $this->assertSame('image', $link['attachment_type']);
+        $this->assertArrayNotHasKey('sender_name', $link);
+        $this->assertArrayNotHasKey('text', $link);
+    }
+
+    public function test_store_incoming_limits_linked_message_text(): void
+    {
+        $message = app(MaxMessageService::class)->storeIncoming($this->incomingUpdate(
+            text: 'Ответ',
+            link: new LinkedMessage(
+                type: MessageLinkType::Reply,
+                sender: null,
+                senderId: 111,
+                mid: 'orig-3',
+                message: new MessageBody(mid: 'orig-3', seq: 1, text: str_repeat('а', 600)),
+            ),
+        ));
+
+        $this->assertNotNull($message);
+        $this->assertIsArray($message->link);
+
+        /** @var array<string, mixed> $link */
+        $link = $message->link;
+
+        $this->assertIsString($link['text']);
+        $this->assertSame(501, mb_strlen($link['text']));
     }
 
     public function test_chat_exists_by_chat_id(): void
@@ -999,6 +1083,33 @@ class MaxMessageServiceTest extends TestCase
         $this->assertDatabaseCount('max_chat_messages', 1);
     }
 
+    public function test_apply_incoming_edit_updates_linked_message(): void
+    {
+        $service = app(MaxMessageService::class);
+        $service->storeIncoming($this->incomingUpdate('Привет', 'm-1'));
+
+        $edited = $service->applyIncomingEdit($this->editedUpdate(
+            messageId: 'm-1',
+            text: 'Новый текст',
+            link: new LinkedMessage(
+                type: MessageLinkType::Reply,
+                sender: $this->maxUser(),
+                senderId: 111,
+                mid: 'orig-9',
+                message: new MessageBody(mid: 'orig-9', seq: 1, text: 'Цитата после правки'),
+            ),
+        ));
+
+        $this->assertNotNull($edited);
+        $this->assertIsArray($edited->link);
+
+        /** @var array<string, mixed> $link */
+        $link = $edited->link;
+
+        $this->assertSame('reply', $link['type']);
+        $this->assertSame('Цитата после правки', $link['text']);
+    }
+
     public function test_apply_incoming_edit_dispatches_updated_event(): void
     {
         \Illuminate\Support\Facades\Event::fake([MaxMessageUpdated::class]);
@@ -1299,14 +1410,18 @@ class MaxMessageServiceTest extends TestCase
         $this->assertDatabaseCount('max_chat_messages', 2);
     }
 
-    private function editedUpdate(string $messageId, ?string $text): MessageEditedUpdate
-    {
+    private function editedUpdate(
+        string $messageId,
+        ?string $text,
+        ?LinkedMessage $link = null,
+    ): MessageEditedUpdate {
         return new MessageEditedUpdate(
             timestamp: 2000,
             message: new Message(
                 sender: $this->maxUser(),
                 recipient: new Recipient(chatId: 222, userId: 111),
                 timestamp: 2000,
+                link: $link,
                 body: new MessageBody(mid: $messageId, seq: 1, text: $text),
             ),
         );
@@ -1322,14 +1437,18 @@ class MaxMessageServiceTest extends TestCase
         );
     }
 
-    private function incomingUpdate(string $text, ?string $mid = null): MessageCreatedUpdate
-    {
+    private function incomingUpdate(
+        string $text,
+        ?string $mid = null,
+        ?LinkedMessage $link = null,
+    ): MessageCreatedUpdate {
         return new MessageCreatedUpdate(
             timestamp: 1000,
             message: new Message(
                 sender: $this->maxUser(),
                 recipient: new Recipient(chatId: 222, userId: 111),
                 timestamp: 1000,
+                link: $link,
                 body: new MessageBody(mid: $mid ?? $this->nextMid(), seq: 1, text: $text),
             ),
         );

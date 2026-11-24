@@ -33,6 +33,9 @@ class OperatorChat extends Component
 
     public string $reply = '';
 
+    #[Locked]
+    public ?int $replyToMessageId = null;
+
     public string $search = '';
 
     /** @var list<TemporaryUploadedFile> */
@@ -92,6 +95,7 @@ class OperatorChat extends Component
     public function selectChat(int $chatId): void
     {
         $this->activeChatId = $chatId;
+        $this->replyToMessageId = null;
 
         if ($this->prefetchIncludes('on_open')) {
             $this->profileRefresher?->refreshForChat($chatId);
@@ -138,6 +142,7 @@ class OperatorChat extends Component
 
         $this->service?->clearHistory($this->activeChatId);
 
+        $this->replyToMessageId = null;
         $this->messages = new Collection();
 
         $this->dispatchUnreadCount();
@@ -157,6 +162,7 @@ class OperatorChat extends Component
         $this->service?->removeChat($chatId);
 
         $this->activeChatId = null;
+        $this->replyToMessageId = null;
         $this->messages = new Collection();
 
         $this->dispatchUnreadCount();
@@ -178,6 +184,7 @@ class OperatorChat extends Component
     {
         if ($this->activeChatId === $chatId) {
             $this->activeChatId = null;
+            $this->replyToMessageId = null;
             $this->messages = new Collection();
         }
 
@@ -191,6 +198,10 @@ class OperatorChat extends Component
         abort_unless($user !== null && $user->can($this->managePermission()), 403);
 
         $this->service?->deleteMessage($messageId);
+
+        if ($this->replyToMessageId === $messageId) {
+            $this->replyToMessageId = null;
+        }
 
         $this->messages = $this->messages->reject(
             static fn (MaxMessage $m): bool => $m->id === $messageId,
@@ -283,6 +294,46 @@ class OperatorChat extends Component
         $this->validateOnly('attachments', $this->rules());
     }
 
+    public function startReply(int $messageId): void
+    {
+        $user = auth()->user();
+
+        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+
+        if ($this->activeChatId === null) {
+            return;
+        }
+
+        $message = MaxMessage::query()
+            ->where('max_chat_id', $this->activeChatId)
+            ->whereKey($messageId)
+            ->first();
+
+        if (! $message instanceof MaxMessage || ! filled($message->message_id)) {
+            return;
+        }
+
+        $this->replyToMessageId = $message->id;
+    }
+
+    public function cancelReply(): void
+    {
+        $this->replyToMessageId = null;
+    }
+
+    #[Computed]
+    public function replyTarget(): ?MaxMessage
+    {
+        if ($this->activeChatId === null || $this->replyToMessageId === null) {
+            return null;
+        }
+
+        return MaxMessage::query()
+            ->where('max_chat_id', $this->activeChatId)
+            ->whereKey($this->replyToMessageId)
+            ->first();
+    }
+
     public function sendReply(): void
     {
         $user = auth()->user();
@@ -304,6 +355,15 @@ class OperatorChat extends Component
         $maxCaption = $caption !== null ? (string) $this->sanitizer?->toMaxHtml($caption) : null;
         $recipient = new Recipient(chatId: $chat->chat_id, userId: $chat->interlocutorId());
 
+        $replyTarget = $this->replyTarget();
+        $replyToMessageId = $replyTarget?->message_id;
+
+        if (! is_string($replyToMessageId) || $replyToMessageId === '') {
+            $replyToMessageId = null;
+        }
+
+        $link = $replyTarget?->replyLinkData();
+
         try {
             $attachments = $this->attachments;
             $store = app(MaxAttachmentStore::class);
@@ -318,7 +378,13 @@ class OperatorChat extends Component
                     $attachments,
                 );
 
-                app(MaxChatSender::class)->sendAttachments($recipient, $types, $paths, $maxCaption);
+                if ($replyToMessageId !== null) {
+                    app(MaxChatSender::class)->sendAttachments($recipient, $types, $paths, $maxCaption, $replyToMessageId);
+                } else {
+                    app(MaxChatSender::class)->sendAttachments($recipient, $types, $paths, $maxCaption);
+                }
+            } elseif ($replyToMessageId !== null) {
+                app(MaxChatSender::class)->sendFormatted($recipient, (string) $maxCaption, $replyToMessageId);
             } else {
                 app(MaxChatSender::class)->sendFormatted($recipient, (string) $maxCaption);
             }
@@ -352,9 +418,10 @@ class OperatorChat extends Component
             sender: MaxMessageSender::Operator,
             operatorId: $operatorId,
             attachments: $attachmentMeta,
+            link: $link,
         );
 
-        $this->reset('reply', 'attachments');
+        $this->reset('reply', 'attachments', 'replyToMessageId');
 
         $this->dispatch('clear-file-input');
         $this->loadMessages();
@@ -431,6 +498,11 @@ class OperatorChat extends Component
         }
 
         $this->loadMessages();
+
+        if ($this->replyToMessageId !== null && $this->replyTarget() === null) {
+            $this->replyToMessageId = null;
+        }
+
         $this->dispatchUnreadCount();
     }
 
@@ -494,7 +566,8 @@ class OperatorChat extends Component
             }
 
             if ($freshById->get($message->id)?->text !== $message->text
-                || $freshById->get($message->id)?->attachment !== $message->attachment) {
+                || $freshById->get($message->id)?->attachment !== $message->attachment
+                || $freshById->get($message->id)?->link !== $message->link) {
                 $this->loadMessages();
 
                 return;

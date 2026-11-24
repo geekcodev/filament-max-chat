@@ -199,6 +199,165 @@ class OperatorChatTest extends TestCase
         ]);
     }
 
+    public function test_reply_to_message_sends_link_and_stores_quote(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $target = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Исходное сообщение',
+            messageId: 'orig-1',
+        );
+
+        $this->mock(MaxChatSender::class)
+            ->shouldReceive('sendFormatted')
+            ->once()
+            ->with(
+                Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222 && $recipient->userId === 111),
+                'Привет!',
+                'orig-1',
+            );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $target->id)
+            ->assertSet('replyToMessageId', $target->id)
+            ->assertSee('Исходное сообщение')
+            ->set('reply', 'Привет!')
+            ->call('sendReply')
+            ->assertHasNoErrors()
+            ->assertSet('replyToMessageId', null);
+
+        $outgoing = MaxMessage::query()
+            ->where('max_chat_id', $chat->chat_id)
+            ->where('direction', MaxMessageDirection::Out)
+            ->first();
+
+        $this->assertNotNull($outgoing);
+        $this->assertIsArray($outgoing->link);
+
+        /** @var array<string, mixed> $link */
+        $link = $outgoing->link;
+
+        $this->assertSame('reply', $link['type']);
+        $this->assertSame('orig-1', $link['mid']);
+        $this->assertSame('Исходное сообщение', $link['text']);
+    }
+
+    public function test_reply_with_attachment_passes_link_to_max(): void
+    {
+        Storage::fake('local');
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $target = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Исходное',
+            messageId: 'orig-2',
+        );
+
+        $this->mock(MaxChatSender::class)
+            ->shouldReceive('sendAttachments')
+            ->once()
+            ->with(
+                Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222),
+                [UploadType::File],
+                Mockery::on(static fn (array $paths): bool => is_string($paths[0] ?? null) && is_file($paths[0])),
+                null,
+                'orig-2',
+            );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $target->id)
+            ->set('attachments', [UploadedFile::fake()->create('doc.pdf', 100, 'application/pdf')])
+            ->call('sendReply')
+            ->assertHasNoErrors();
+    }
+
+    public function test_reply_button_visible_only_for_messages_with_max_id(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $fromMax = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Из MAX',
+            messageId: 'orig-3',
+        );
+        $local = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Локальное',
+        );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('startReply('.$fromMax->id.')', false)
+            ->assertDontSee('startReply('.$local->id.')', false);
+    }
+
+    public function test_start_reply_requires_answer_permission(): void
+    {
+        $user = $this->createUser(canView: true);
+        $chat = $this->createChat();
+        $target = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Исходное',
+            messageId: 'orig-5',
+        );
+
+        Livewire::actingAs($user)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $target->id)
+            ->assertForbidden();
+    }
+
+    public function test_start_reply_ignores_message_from_another_chat(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $otherChat = $this->makeChatWithUser(333, 111);
+        $foreign = $this->createMessage(
+            $otherChat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Чужое',
+            messageId: 'orig-6',
+        );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $foreign->id)
+            ->assertSet('replyToMessageId', null);
+    }
+
+    public function test_cancel_reply_clears_target(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $target = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Исходное',
+            messageId: 'orig-4',
+        );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $target->id)
+            ->call('cancelReply')
+            ->assertSet('replyToMessageId', null);
+    }
+
     public function test_reply_requires_answer_permission(): void
     {
         $user = $this->createUser(canView: true);
@@ -1425,6 +1584,59 @@ class OperatorChatTest extends TestCase
             ->assertDontSee('javascript:alert(1)', false);
     }
 
+    public function test_incoming_reply_renders_quoted_message(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Согласен', [
+            'type' => 'reply',
+            'mid' => 'orig-1',
+            'sender_name' => 'Иван Петров',
+            'text' => 'Исходное сообщение',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.reply_to'))
+            ->assertSee('Иван Петров')
+            ->assertSee('Исходное сообщение')
+            ->assertSee('Согласен');
+    }
+
+    public function test_incoming_forward_renders_forward_label(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Смотрите', [
+            'type' => 'forward',
+            'mid' => 'orig-2',
+            'sender_name' => 'Мария',
+            'attachment_type' => 'image',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.forwarded_from'))
+            ->assertSee('Мария')
+            ->assertSee(__('filament-max-chat::chat.preview.image'));
+    }
+
+    public function test_incoming_reply_escapes_quoted_text(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Ответ', [
+            'type' => 'reply',
+            'mid' => 'orig-3',
+            'text' => '<script>alert(1)</script>',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
+            ->assertDontSee('<script>alert(1)</script>', false);
+    }
+
     public function test_incoming_inline_keyboard_message_renders_button_chips(): void
     {
         $staff = $this->createStaff();
@@ -1490,19 +1702,26 @@ class OperatorChatTest extends TestCase
         return $this->makeChatWithUser(222, 111);
     }
 
+    /**
+     * @param array<string, mixed>|null $link
+     */
     private function createMessage(
         MaxChat $chat,
         MaxMessageDirection $direction,
         MaxMessageSender $sender,
         ?string $text,
+        ?array $link = null,
+        ?string $messageId = null,
     ): MaxMessage {
         return MaxMessage::query()->create([
             'max_chat_id' => $chat->chat_id,
             'user_id' => 111,
             'chat_id' => $chat->chat_id,
+            'message_id' => $messageId,
             'direction' => $direction,
             'sender_type' => $sender,
             'text' => $text,
+            'link' => $link,
         ]);
     }
 

@@ -73,6 +73,24 @@ class MaxChatMessagesSchemaTest extends TestCase
         $this->assertTrue(Schema::hasIndex('max_chat_messages', 'max_chat_messages_unread_index'));
     }
 
+    public function test_link_column_is_nullable_and_migration_is_reversible(): void
+    {
+        $this->assertTrue($this->column('link')['nullable']);
+
+        $migration = $this->linkMigration();
+
+        /** @phpstan-ignore method.notFound (методы есть у анонимного класса) */
+        $migration->down();
+
+        $this->assertFalse(Schema::hasColumn('max_chat_messages', 'link'));
+
+        /** @phpstan-ignore method.notFound (методы есть у анонимного класса) */
+        $migration->up();
+
+        $this->assertTrue(Schema::hasColumn('max_chat_messages', 'link'));
+        $this->assertTrue($this->column('link')['nullable']);
+    }
+
     public function test_message_without_user_id_is_stored_and_read(): void
     {
         $chatId = -777;
@@ -167,6 +185,23 @@ class MaxChatMessagesSchemaTest extends TestCase
     private function migration(): Migration
     {
         $file = dirname(__DIR__, 2).'/database/migrations/0000_02_000002_make_max_chat_messages_user_id_nullable.php';
+
+        $this->assertFileExists($file);
+
+        $migration = require $file;
+
+        $this->assertInstanceOf(Migration::class, $migration);
+
+        /** @var Migration $migration */
+        return $migration;
+    }
+
+    /**
+     * @return Migration&object{}
+     */
+    private function linkMigration(): Migration
+    {
+        $file = dirname(__DIR__, 2).'/database/migrations/0000_02_000005_add_link_to_max_chat_messages.php';
 
         $this->assertFileExists($file);
 

@@ -14,9 +14,11 @@ use GeekCo\MaxPhpClient\Dto\AttachmentRequest\VideoAttachmentRequest;
 use GeekCo\MaxPhpClient\Dto\Button\RequestContactButton;
 use GeekCo\MaxPhpClient\Dto\InlineKeyboardAttachmentRequestPayload;
 use GeekCo\MaxPhpClient\Dto\NewMessageBody;
+use GeekCo\MaxPhpClient\Dto\NewMessageLink;
 use GeekCo\MaxPhpClient\Dto\PhotoAttachmentRequestPayload;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use GeekCo\MaxPhpClient\Dto\UploadedInfo;
+use GeekCo\MaxPhpClient\Enum\MessageLinkType;
 use GeekCo\MaxPhpClient\Enum\TextFormat;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Illuminate\Support\Facades\Log;
@@ -33,11 +35,15 @@ class MaxChatSender
     /**
      * Sends a formatted HTML reply (bold, italic, links, etc.).
      */
-    public function sendFormatted(Recipient $recipient, string $html): void
+    public function sendFormatted(Recipient $recipient, string $html, ?string $replyToMessageId = null): void
     {
         $this->api->sendMessage(
             recipient: $recipient,
-            body: NewMessageBody::create(text: $html, format: TextFormat::Html),
+            body: NewMessageBody::create(
+                text: $html,
+                link: $this->replyLink($replyToMessageId),
+                format: TextFormat::Html,
+            ),
         );
     }
 
@@ -52,6 +58,7 @@ class MaxChatSender
         array $types,
         array $paths,
         ?string $caption = null,
+        ?string $replyToMessageId = null,
     ): void {
         $attachments = [];
 
@@ -64,6 +71,7 @@ class MaxChatSender
             body: NewMessageBody::create(
                 text: $caption,
                 attachments: $attachments,
+                link: $this->replyLink($replyToMessageId),
                 format: $caption !== null && $caption !== '' ? TextFormat::Html : null,
             ),
         );
@@ -97,6 +105,15 @@ class MaxChatSender
                 format: $hasText ? TextFormat::Html : null,
             ),
         );
+    }
+
+    private function replyLink(?string $replyToMessageId): ?NewMessageLink
+    {
+        if ($replyToMessageId === null || $replyToMessageId === '') {
+            return null;
+        }
+
+        return new NewMessageLink(MessageLinkType::Reply, $replyToMessageId);
     }
 
     private function uploadToAttachment(UploadType $type, string $absolutePath): AttachmentRequest
