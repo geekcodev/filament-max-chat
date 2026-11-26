@@ -4,6 +4,22 @@ declare(strict_types=1);
 
 use GeekCo\FilamentMaxChat\Models\MaxChat;
 
+/**
+ * Список из env-строки через запятую: пустые элементы отбрасываются.
+ *
+ * @return list<string>
+ */
+$csv = static function (mixed $value): array {
+    if (! is_string($value)) {
+        return [];
+    }
+
+    return array_values(array_filter(array_map(
+        static fn (string $item): string => trim($item),
+        explode(',', $value),
+    ), static fn (string $item): bool => $item !== ''));
+};
+
 return [
 
     /*
@@ -17,8 +33,9 @@ return [
     */
 
     'permissions' => [
-        'view' => env('FILAMENT_MAX_CHAT_PERMISSION_VIEW', 'chat.view'),
-        'answer' => env('FILAMENT_MAX_CHAT_PERMISSION_ANSWER', 'chat.answer'),
+        'view' => env('MAX_PERMISSION_CHAT_VIEW', 'max_chat.view'),
+        'answer' => env('MAX_PERMISSION_CHAT_ANSWER', 'max_chat.answer'),
+        'manage' => env('MAX_PERMISSION_CHAT_MANAGE', 'max_chat.manage'),
     ],
 
     /*
@@ -31,7 +48,7 @@ return [
     |
     */
 
-    'broadcast_channel' => env('FILAMENT_MAX_CHAT_CHANNEL', 'chat.channel'),
+    'broadcast_channel' => env('MAX_CHAT_BROADCAST_CHANNEL', 'chat.channel'),
 
     /*
     |--------------------------------------------------------------------------
@@ -51,7 +68,7 @@ return [
     */
 
     'updates' => [
-        'auto_handle' => filter_var(env('FILAMENT_MAX_CHAT_UPDATES_AUTO_HANDLE', true), FILTER_VALIDATE_BOOLEAN),
+        'auto_handle' => filter_var(env('MAX_CHAT_UPDATES_AUTO_HANDLE', true), FILTER_VALIDATE_BOOLEAN),
     ],
 
     /*
@@ -67,7 +84,7 @@ return [
 
     'chat_model' => MaxChat::class,
 
-    'user_model' => env('FILAMENT_MAX_CHAT_USER_MODEL', \Illuminate\Foundation\Auth\User::class),
+    'user_model' => env('MAX_CHAT_USER_MODEL', \Illuminate\Foundation\Auth\User::class),
 
     /*
     |--------------------------------------------------------------------------
@@ -84,10 +101,10 @@ return [
     */
 
     'profile' => [
-        'enabled' => filter_var(env('FILAMENT_MAX_CHAT_PROFILE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
-        'prefetch' => env('FILAMENT_MAX_CHAT_PROFILE_PREFETCH', 'both'),
-        'cache_ttl' => (int) env('FILAMENT_MAX_CHAT_PROFILE_CACHE_TTL', 86400),
-        'refresh_existing' => filter_var(env('FILAMENT_MAX_CHAT_PROFILE_REFRESH_EXISTING', false), FILTER_VALIDATE_BOOLEAN),
+        'enabled' => filter_var(env('MAX_CHAT_PROFILE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'prefetch' => env('MAX_CHAT_PROFILE_PREFETCH', 'both'),
+        'cache_ttl' => (int) env('MAX_CHAT_PROFILE_CACHE_TTL', 86400),
+        'refresh_existing' => filter_var(env('MAX_CHAT_PROFILE_REFRESH_EXISTING', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     /*
@@ -102,11 +119,11 @@ return [
     */
 
     'attachments' => [
-        'disk' => env('FILAMENT_MAX_CHAT_DISK', 'local'),
-        'directory' => env('FILAMENT_MAX_CHAT_DIRECTORY', 'chat-attachments'),
-        'max_bytes' => (int) env('FILAMENT_MAX_CHAT_MAX_BYTES', 25 * 1024 * 1024),
-        'upload_max_kb' => (int) env('FILAMENT_MAX_CHAT_UPLOAD_MAX_KB', 20480),
-        'mimes' => env('FILAMENT_MAX_CHAT_MIMES', 'jpg,jpeg,png,gif,webp,bmp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,mp4,mov,mp3,wav,zip'),
+        'disk' => env('MAX_CHAT_ATTACHMENTS_DISK', 'local'),
+        'directory' => env('MAX_CHAT_ATTACHMENTS_DIRECTORY', 'chat-attachments'),
+        'max_bytes' => (int) env('MAX_CHAT_ATTACHMENTS_MAX_BYTES', 25 * 1024 * 1024),
+        'upload_max_kb' => (int) env('MAX_CHAT_ATTACHMENTS_UPLOAD_MAX_KB', 20480),
+        'mimes' => env('MAX_CHAT_ATTACHMENTS_MIMES', 'jpg,jpeg,png,gif,webp,bmp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,mp4,mov,mp3,wav,zip'),
     ],
 
     /*
@@ -121,10 +138,10 @@ return [
     */
 
     'route' => [
-        'enabled' => filter_var(env('FILAMENT_MAX_CHAT_ROUTE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
-        'uri' => env('FILAMENT_MAX_CHAT_ROUTE_URI', '/admin/chat/messages/{message}/attachment'),
-        'login_url' => env('FILAMENT_MAX_CHAT_LOGIN_URL', '/admin/login'),
-        'unread_count_uri' => env('FILAMENT_MAX_CHAT_UNREAD_COUNT_URI', '/admin/chat/unread-count'),
+        'enabled' => filter_var(env('MAX_CHAT_ROUTE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'uri' => env('MAX_CHAT_ROUTE_URI', '/admin/chat/messages/{message}/attachment'),
+        'login_url' => env('MAX_CHAT_ROUTE_LOGIN_URL', '/admin/login'),
+        'unread_count_uri' => env('MAX_CHAT_ROUTE_UNREAD_COUNT_URI', '/admin/chat/unread-count'),
     ],
 
     /*
@@ -158,11 +175,11 @@ return [
     */
 
     'notifications' => [
-        'enabled' => filter_var(env('FILAMENT_MAX_CHAT_NOTIFICATIONS_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
-        'sound' => filter_var(env('FILAMENT_MAX_CHAT_NOTIFICATIONS_SOUND', true), FILTER_VALIDATE_BOOLEAN),
-        'browser' => filter_var(env('FILAMENT_MAX_CHAT_NOTIFICATIONS_BROWSER', true), FILTER_VALIDATE_BOOLEAN),
-        'poll_enabled' => filter_var(env('FILAMENT_MAX_CHAT_NOTIFICATIONS_POLL_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
-        'poll_interval_seconds' => (int) env('FILAMENT_MAX_CHAT_NOTIFICATIONS_POLL_INTERVAL', 15),
+        'enabled' => filter_var(env('MAX_CHAT_NOTIFICATIONS_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'sound' => filter_var(env('MAX_CHAT_NOTIFICATIONS_SOUND', true), FILTER_VALIDATE_BOOLEAN),
+        'browser' => filter_var(env('MAX_CHAT_NOTIFICATIONS_BROWSER', true), FILTER_VALIDATE_BOOLEAN),
+        'poll_enabled' => filter_var(env('MAX_CHAT_NOTIFICATIONS_POLL_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'poll_interval_seconds' => (int) env('MAX_CHAT_NOTIFICATIONS_POLL_INTERVAL', 15),
     ],
 
     /*
@@ -177,15 +194,25 @@ return [
     | (email из user_model); у каждого сообщения — одно письмо, повторов нет.
     | Требует настроенного MAIL_* хост-приложения. По умолчанию выключено.
     |
+    | filters — что не считать важным для письма:
+    | ignore_commands — команды (без слэша, регистр не важен), которые всегда
+    |   пропускаются; allow_commands — если непусто, команды вне списка тоже
+    |   пропускаются; обычные сообщения эти списки не трогают.
+    | ignore_patterns — wildcard-маски Laravel (`*`), регистр не важен: спам,
+    |   ссылки, реклама. Отфильтрованные сообщения помечаются notified_at, но
+    |   остаются в ленте и счётчике непрочитанного.
+    |
     */
 
     'email' => [
-        'enabled' => filter_var(env('FILAMENT_MAX_CHAT_EMAIL_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
-        'unread_after_minutes' => (int) env('FILAMENT_MAX_CHAT_EMAIL_UNREAD_AFTER_MINUTES', 5),
-        'to' => array_values(array_filter(array_map(
-            'trim',
-            explode(',', (string) env('FILAMENT_MAX_CHAT_EMAIL_TO', '')),
-        ), static fn (string $email): bool => $email !== '')),
+        'enabled' => filter_var(env('MAX_CHAT_EMAIL_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'unread_after_minutes' => (int) env('MAX_CHAT_EMAIL_UNREAD_AFTER_MINUTES', 5),
+        'to' => $csv(env('MAX_CHAT_EMAIL_TO', '')),
+        'filters' => [
+            'ignore_commands' => $csv(env('MAX_CHAT_EMAIL_IGNORE_COMMANDS', 'start,help,menu,settings,stop,cancel,back')),
+            'allow_commands' => $csv(env('MAX_CHAT_EMAIL_ALLOW_COMMANDS', '')),
+            'ignore_patterns' => $csv(env('MAX_CHAT_EMAIL_IGNORE_PATTERNS', '')),
+        ],
     ],
 
     /*

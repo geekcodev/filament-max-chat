@@ -116,6 +116,62 @@ class MaxChatSenderTest extends TestCase
     }
 
     #[Test]
+    public function send_formatted_includes_reply_link(): void
+    {
+        /** @var \ArrayObject<int, RequestInterface> $requests */
+        $requests = new \ArrayObject();
+        $sender = $this->createSenderWithResponses([self::messageResponse()], $requests);
+
+        $sender->sendFormatted(
+            new Recipient(chatId: 42, userId: 1),
+            '<b>hi</b>',
+            'msg-42',
+        );
+
+        $this->assertCount(1, $requests);
+
+        $request = $requests[0] ?? null;
+        $this->assertInstanceOf(RequestInterface::class, $request);
+
+        $body = json_decode((string) $request->getBody(), true);
+
+        $this->assertIsArray($body);
+        $this->assertSame(['type' => 'reply', 'mid' => 'msg-42'], $body['link'] ?? null);
+    }
+
+    #[Test]
+    public function send_attachments_includes_reply_link(): void
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'test_');
+        $this->assertNotFalse($tmp);
+        file_put_contents($tmp, 'fake file data');
+
+        /** @var \ArrayObject<int, RequestInterface> $requests */
+        $requests = new \ArrayObject();
+        $sender = $this->createSenderWithResponses($this->attachmentResponses('file-token'), $requests);
+
+        $sender->sendAttachments(
+            new Recipient(chatId: 42, userId: 1),
+            [UploadType::File],
+            [$tmp],
+            'Caption',
+            'msg-7',
+        );
+
+        @unlink($tmp);
+
+        $this->assertCount(3, $requests);
+
+        $request = $requests[2] ?? null;
+        $this->assertInstanceOf(RequestInterface::class, $request);
+
+        $body = json_decode((string) $request->getBody(), true);
+
+        $this->assertIsArray($body);
+        $this->assertSame(['type' => 'reply', 'mid' => 'msg-7'], $body['link'] ?? null);
+    }
+
+    #[Test]
     public function send_attachment_throws_for_nonexistent_file(): void
     {
         $sender = $this->createSenderWithResponses([]);

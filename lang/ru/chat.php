@@ -22,18 +22,18 @@ return [
     ],
 
     'preview' => [
-        'image' => '📷 Фото',
-        'video' => '🎬 Видео',
-        'audio' => '🎵 Аудио',
-        'file' => '📄 Файл',
-        'sticker' => '🖼️ Стикер',
-        'contact' => '👤 Контакт',
-        'location' => '📍 Геолокация',
-        'share' => '🔗 Ссылка',
-        'buttons' => '⌨️ Кнопки',
-        'image_unavailable' => '📷 Фото недоступно',
-        'file_unavailable' => '📎 Файл недоступно',
-        'sticker_unavailable' => '🖼️ Стикер недоступен',
+        'image' => 'Фото',
+        'video' => 'Видео',
+        'audio' => 'Аудио',
+        'file' => 'Файл',
+        'sticker' => 'Стикер',
+        'contact' => 'Контакт',
+        'location' => 'Геолокация',
+        'share' => 'Ссылка',
+        'buttons' => 'Кнопки',
+        'image_unavailable' => 'Фото недоступно',
+        'file_unavailable' => 'Файл недоступен',
+        'sticker_unavailable' => 'Стикер недоступен',
     ],
 
     'contact' => [
@@ -43,21 +43,23 @@ return [
         'open' => 'Открыть на карте',
     ],
 
-    'fallback_user' => 'Пользователь :id',
-
     'empty_conversations' => 'Нет активных диалогов',
     'no_search_results' => 'Ничего не найдено по запросу',
     'select_conversation' => 'Выберите диалог слева',
     'back_to_list' => 'К списку диалогов',
     'empty_messages' => 'Сообщений пока нет',
-    'load_older' => '↑ Загрузить более ранние сообщения',
+    'load_older' => 'Загрузить более ранние сообщения',
     'loading' => 'Загрузка…',
     'clear_history' => 'Очистить историю',
     'clear_confirm' => 'Удалить все сообщения в этом чате? Это действие необратимо.',
-    'remove_chat' => 'Удалить чат',
+    'remove_chat' => 'Убрать из списка',
     'remove_chat_confirm' => 'Убрать этот диалог из списка? История сообщений будет сохранена.',
     'delete_message' => 'Удалить сообщение',
     'delete_confirm' => 'Удалить это сообщение?',
+    'reply_to' => 'Ответ на сообщение',
+    'forwarded_from' => 'Переслано от',
+    'reply' => 'Ответить',
+    'cancel_reply' => 'Отменить ответ',
 
     'formatting' => 'Форматирование',
     'format_bold' => 'Ж',
@@ -82,6 +84,9 @@ return [
     'notification_sound_off' => 'Звуковые оповещения: выкл',
 
     'close' => 'Закрыть',
+    'phone' => 'Телефон',
+    'phone_missing' => 'не указан',
+    'phone_unverified' => 'не подтверждён',
 
     'search_placeholder' => 'Поиск…',
 

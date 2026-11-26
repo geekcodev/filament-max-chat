@@ -6,12 +6,19 @@ namespace GeekCo\FilamentMaxChat\Services;
 
 use GeekCo\MaxPhpClient\ApiClient;
 use GeekCo\MaxPhpClient\Dto\AttachmentRequest;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButton;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\AudioAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\FileAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\InlineKeyboardAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\PhotoAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\VideoAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\Button\RequestContactButton;
+use GeekCo\MaxPhpClient\Dto\InlineKeyboardAttachmentRequestPayload;
 use GeekCo\MaxPhpClient\Dto\NewMessageBody;
+use GeekCo\MaxPhpClient\Dto\NewMessageLink;
+use GeekCo\MaxPhpClient\Dto\PhotoAttachmentRequestPayload;
 use GeekCo\MaxPhpClient\Dto\Recipient;
-use GeekCo\MaxPhpClient\Enum\AttachmentType;
-use GeekCo\MaxPhpClient\Enum\ButtonType;
+use GeekCo\MaxPhpClient\Dto\UploadedInfo;
+use GeekCo\MaxPhpClient\Enum\MessageLinkType;
 use GeekCo\MaxPhpClient\Enum\TextFormat;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Illuminate\Support\Facades\Log;
@@ -28,11 +35,15 @@ class MaxChatSender
     /**
      * Sends a formatted HTML reply (bold, italic, links, etc.).
      */
-    public function sendFormatted(Recipient $recipient, string $html): void
+    public function sendFormatted(Recipient $recipient, string $html, ?string $replyToMessageId = null): void
     {
         $this->api->sendMessage(
             recipient: $recipient,
-            body: NewMessageBody::create(text: $html, format: TextFormat::Html),
+            body: NewMessageBody::create(
+                text: $html,
+                link: $this->replyLink($replyToMessageId),
+                format: TextFormat::Html,
+            ),
         );
     }
 
@@ -47,6 +58,7 @@ class MaxChatSender
         array $types,
         array $paths,
         ?string $caption = null,
+        ?string $replyToMessageId = null,
     ): void {
         $attachments = [];
 
@@ -59,6 +71,7 @@ class MaxChatSender
             body: NewMessageBody::create(
                 text: $caption,
                 attachments: $attachments,
+                link: $this->replyLink($replyToMessageId),
                 format: $caption !== null && $caption !== '' ? TextFormat::Html : null,
             ),
         );
@@ -78,9 +91,10 @@ class MaxChatSender
      */
     public function sendRequestContact(Recipient $recipient, string $buttonText = 'Поделиться контактом', ?string $text = null): void
     {
-        $button = new InlineKeyboardButton(type: ButtonType::RequestContact, text: $buttonText);
-        $row = new InlineKeyboardButtonRow([$button]);
-        $attachment = AttachmentRequest::create(AttachmentType::InlineKeyboard, rows: [$row]);
+        $button = new RequestContactButton($buttonText);
+        $attachment = new InlineKeyboardAttachmentRequest(
+            new InlineKeyboardAttachmentRequestPayload([[$button]]),
+        );
         $hasText = $text !== null && $text !== '';
 
         $this->api->sendMessage(
@@ -91,6 +105,15 @@ class MaxChatSender
                 format: $hasText ? TextFormat::Html : null,
             ),
         );
+    }
+
+    private function replyLink(?string $replyToMessageId): ?NewMessageLink
+    {
+        if ($replyToMessageId === null || $replyToMessageId === '') {
+            return null;
+        }
+
+        return new NewMessageLink(MessageLinkType::Reply, $replyToMessageId);
     }
 
     private function uploadToAttachment(UploadType $type, string $absolutePath): AttachmentRequest
@@ -113,20 +136,25 @@ class MaxChatSender
             throw $e;
         }
 
-        return AttachmentRequest::create(
-            type: $this->attachmentTypeFor($type),
-            token: $result->token,
-            url: $result->token === null ? $result->url : null,
-        );
-    }
+        if ($type === UploadType::Image) {
+            return new PhotoAttachmentRequest(new PhotoAttachmentRequestPayload(
+                token: $result->token,
+                url: $result->token === null ? $result->url : null,
+            ));
+        }
 
-    private function attachmentTypeFor(UploadType $type): AttachmentType
-    {
+        $token = $result->token;
+
+        if ($token === null) {
+            throw new \RuntimeException('MAX upload did not return an attachment token.');
+        }
+
+        $payload = new UploadedInfo($token);
+
         return match ($type) {
-            UploadType::Image => AttachmentType::Image,
-            UploadType::Video => AttachmentType::Video,
-            UploadType::Audio => AttachmentType::Audio,
-            UploadType::File => AttachmentType::File,
+            UploadType::Video => new VideoAttachmentRequest($payload),
+            UploadType::Audio => new AudioAttachmentRequest($payload),
+            UploadType::File => new FileAttachmentRequest($payload),
         };
     }
 }

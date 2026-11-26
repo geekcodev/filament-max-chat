@@ -33,6 +33,22 @@ use Throwable;
  */
 class UnreadChatNotifier
 {
+    /**
+     * Команды, которые не поднимают оператора по умолчанию: служебное
+     * взаимодействие с ботом, а не обращение в поддержку.
+     *
+     * @var list<string>
+     */
+    private const DEFAULT_IGNORE_COMMANDS = [
+        'start',
+        'help',
+        'menu',
+        'settings',
+        'stop',
+        'cancel',
+        'back',
+    ];
+
     public function __construct(
         private readonly Logger $logger,
     ) {
@@ -59,6 +75,17 @@ class UnreadChatNotifier
         $delivered = [];
 
         foreach ($pending as $chatId => $messages) {
+            [$notifiable, $skipped] = $this->partition($messages);
+
+            if ($skipped !== []) {
+                // Команды и спам не должны сканироваться каждую минуту.
+                $this->markNotified($skipped);
+            }
+
+            if ($notifiable->isEmpty()) {
+                continue;
+            }
+
             $chat = MaxChat::query()->find($chatId);
 
             if (! $chat instanceof MaxChat) {
@@ -82,8 +109,8 @@ class UnreadChatNotifier
             $entry = [
                 'chat_id' => $chatId,
                 'name' => $chat->displayName(),
-                'count' => $messages->count(),
-                'preview' => $this->previewFor($messages),
+                'count' => $notifiable->count(),
+                'preview' => $this->previewFor($notifiable),
                 'url' => $this->urlFor($chatId),
             ];
 
@@ -119,6 +146,136 @@ class UnreadChatNotifier
         }
 
         return $sent;
+    }
+
+    /**
+     * Делит сообщения чата на важные для письма и отфильтрованные. Отфильтрованные
+     * сразу помечаются notified_at: иначе минутный запуск сканировал бы их снова.
+     *
+     * @param Collection<int, MaxMessage> $messages
+     * @return array{0: Collection<int, MaxMessage>, 1: list<int>}
+     */
+    private function partition(Collection $messages): array
+    {
+        $notifiable = new Collection();
+        $skipped = [];
+
+        foreach ($messages as $message) {
+            if ($this->isNotifiable($message)) {
+                $notifiable->push($message);
+            } else {
+                $skipped[] = $message->id;
+            }
+        }
+
+        return [$notifiable, $skipped];
+    }
+
+    private function isNotifiable(MaxMessage $message): bool
+    {
+        $text = is_string($message->text) ? trim($message->text) : '';
+
+        if ($text === '') {
+            return true;
+        }
+
+        $command = $this->commandFrom($text);
+
+        if ($command !== null) {
+            $ignored = $this->configuredCommands('ignore_commands', self::DEFAULT_IGNORE_COMMANDS);
+
+            if (in_array($command, $ignored, true)) {
+                return false;
+            }
+
+            $allowed = $this->configuredCommands('allow_commands');
+
+            if ($allowed !== [] && ! in_array($command, $allowed, true)) {
+                return false;
+            }
+        }
+
+        $haystack = Str::lower($text);
+
+        foreach ($this->configuredPatterns() as $pattern) {
+            if (Str::is($pattern, $haystack)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Команда из текста сообщения без слэша и суффикса @bot; null для обычного
+     * текста. Регистр не важен.
+     */
+    private function commandFrom(string $text): ?string
+    {
+        if (! str_starts_with($text, '/')) {
+            return null;
+        }
+
+        $parts = preg_split('/\s+/u', $text, 2);
+        $token = $parts === false ? '' : $parts[0];
+        $command = Str::lower(ltrim($token, '/'));
+
+        if ($command === '') {
+            return null;
+        }
+
+        $command = explode('@', $command, 2)[0];
+
+        return $command === '' ? null : $command;
+    }
+
+    /**
+     * @param list<string> $default
+     * @return list<string>
+     */
+    private function configuredCommands(string $key, array $default = []): array
+    {
+        /** @var array<int, mixed> $configured */
+        $configured = config()->array('filament-max-chat.email.filters.'.$key, $default);
+        $commands = [];
+
+        foreach ($configured as $value) {
+            if (! is_string($value)) {
+                continue;
+            }
+
+            $command = Str::lower(ltrim(trim($value), '/'));
+
+            if ($command !== '') {
+                $commands[] = $command;
+            }
+        }
+
+        return array_values(array_unique($commands));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function configuredPatterns(): array
+    {
+        /** @var array<int, mixed> $configured */
+        $configured = config()->array('filament-max-chat.email.filters.ignore_patterns', []);
+        $patterns = [];
+
+        foreach ($configured as $value) {
+            if (! is_string($value)) {
+                continue;
+            }
+
+            $pattern = Str::lower(trim($value));
+
+            if ($pattern !== '') {
+                $patterns[] = $pattern;
+            }
+        }
+
+        return $patterns;
     }
 
     /**

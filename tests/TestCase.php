@@ -36,12 +36,16 @@ abstract class TestCase extends Orchestra
         Queue::fake();
 
         Gate::define(
-            'chat.view',
+            'max_chat.view',
             static fn (TestUser $user): bool => $user->can_view_chat,
         );
         Gate::define(
-            'chat.answer',
+            'max_chat.answer',
             static fn (TestUser $user): bool => $user->can_answer_chat,
+        );
+        Gate::define(
+            'max_chat.manage',
+            static fn (TestUser $user): bool => $user->can_manage_chat,
         );
     }
 

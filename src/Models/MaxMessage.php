@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property MaxMessageSender $sender_type
  * @property string|null $text
  * @property list<StoredAttachment>|null $attachment
+ * @property array<string, mixed>|null $link связанное сообщение: reply/forward
  * @property int|null $operator_id
  * @property \Illuminate\Support\Carbon|null $read_at
  * @property \Illuminate\Support\Carbon|null $notified_at null, пока email-уведомление не отправлялось
@@ -31,6 +32,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class MaxMessage extends Model
 {
+    /** @var list<string> */
+    private const ATTACHMENT_TYPES = [
+        'image',
+        'video',
+        'audio',
+        'file',
+        'sticker',
+        'contact',
+        'location',
+        'share',
+        'inline_keyboard',
+    ];
+
     protected $table = 'max_chat_messages';
 
     protected $fillable = [
@@ -42,6 +56,7 @@ class MaxMessage extends Model
         'sender_type',
         'text',
         'attachment',
+        'link',
         'operator_id',
         'read_at',
         'notified_at',
@@ -56,6 +71,7 @@ class MaxMessage extends Model
             'direction' => MaxMessageDirection::class,
             'sender_type' => MaxMessageSender::class,
             'attachment' => 'array',
+            'link' => 'array',
             'operator_id' => 'integer',
             'read_at' => 'datetime',
             'notified_at' => 'datetime',
@@ -108,7 +124,99 @@ class MaxMessage extends Model
         $first = $attachments[0] ?? null;
         $type = is_array($first) && is_string($first['type'] ?? null) ? $first['type'] : 'file';
 
-        $label = match ($type) {
+        $label = $this->attachmentLabel($type);
+
+        return count($attachments) > 1
+            ? sprintf('%s +%d', $label, count($attachments) - 1)
+            : $label;
+    }
+
+    /**
+     * Связанное сообщение (ответ или пересылка) в нормализованном виде.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function linkedMessage(): ?array
+    {
+        $raw = $this->getAttribute('link');
+
+        if (! is_array($raw)) {
+            return null;
+        }
+
+        /** @var array<string, mixed> $raw */
+        return $raw;
+    }
+
+    /**
+     * Короткая подпись связанного сообщения: текст, а при его отсутствии — тип
+     * вложения. Неизвестный тип даёт null, а не сырой ключ перевода.
+     */
+    public function linkedPreview(): ?string
+    {
+        $link = $this->linkedMessage();
+
+        if ($link === null) {
+            return null;
+        }
+
+        $text = $link['text'] ?? null;
+
+        if (is_string($text) && $text !== '') {
+            return $text;
+        }
+
+        $type = $link['attachment_type'] ?? null;
+
+        if (! is_string($type) || ! in_array($type, self::ATTACHMENT_TYPES, true)) {
+            return null;
+        }
+
+        return $this->attachmentLabel($type);
+    }
+
+    /**
+     * Данные для локальной цитаты, когда оператор отвечает на это сообщение из
+     * админки. Ссылка в MAX требует `message_id`; без него ответить нельзя.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function replyLinkData(): ?array
+    {
+        if (! is_string($this->message_id) || $this->message_id === '') {
+            return null;
+        }
+
+        $text = is_string($this->text) ? trim(strip_tags($this->text)) : '';
+
+        if ($text === '') {
+            $text = null;
+        } elseif (mb_strlen($text) > 500) {
+            $text = mb_substr($text, 0, 500) . '…';
+        }
+
+        $senderName = $this->direction === MaxMessageDirection::In ? $this->senderName() : null;
+
+        if (is_string($senderName)) {
+            $senderName = trim($senderName);
+            $senderName = $senderName === '' ? null : mb_substr($senderName, 0, 255);
+        }
+
+        $attachments = $this->attachments();
+        $type = $attachments === [] ? null : $attachments[0]['type'];
+
+        return array_filter([
+            'type' => 'reply',
+            'mid' => $this->message_id,
+            'sender_name' => $senderName,
+            'text' => $text,
+            'attachment_type' => $type,
+        ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    private function attachmentLabel(string $type): string
+    {
+        return match ($type) {
             'image' => __('filament-max-chat::chat.preview.image'),
             'video' => __('filament-max-chat::chat.preview.video'),
             'audio' => __('filament-max-chat::chat.preview.audio'),
@@ -119,10 +227,6 @@ class MaxMessage extends Model
             'inline_keyboard' => __('filament-max-chat::chat.preview.buttons'),
             default => __('filament-max-chat::chat.preview.file'),
         };
-
-        return count($attachments) > 1
-            ? sprintf('%s +%d', $label, count($attachments) - 1)
-            : $label;
     }
 
     /**

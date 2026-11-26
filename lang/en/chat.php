@@ -22,18 +22,18 @@ return [
     ],
 
     'preview' => [
-        'image' => '📷 Photo',
-        'video' => '🎬 Video',
-        'audio' => '🎵 Audio',
-        'file' => '📄 File',
-        'sticker' => '🖼️ Sticker',
-        'contact' => '👤 Contact',
-        'location' => '📍 Location',
-        'share' => '🔗 Link',
-        'buttons' => '⌨️ Buttons',
-        'image_unavailable' => '📷 Photo unavailable',
-        'file_unavailable' => '📎 File unavailable',
-        'sticker_unavailable' => '🖼️ Sticker unavailable',
+        'image' => 'Photo',
+        'video' => 'Video',
+        'audio' => 'Audio',
+        'file' => 'File',
+        'sticker' => 'Sticker',
+        'contact' => 'Contact',
+        'location' => 'Location',
+        'share' => 'Link',
+        'buttons' => 'Buttons',
+        'image_unavailable' => 'Photo unavailable',
+        'file_unavailable' => 'File unavailable',
+        'sticker_unavailable' => 'Sticker unavailable',
     ],
 
     'contact' => [
@@ -43,21 +43,23 @@ return [
         'open' => 'Open in map',
     ],
 
-    'fallback_user' => 'User :id',
-
     'empty_conversations' => 'No active conversations',
     'no_search_results' => 'No results found for your search',
     'select_conversation' => 'Select a conversation on the left',
     'back_to_list' => 'Back to conversations',
     'empty_messages' => 'No messages yet',
-    'load_older' => '↑ Load older messages',
+    'load_older' => 'Load older messages',
     'loading' => 'Loading…',
     'clear_history' => 'Clear history',
     'clear_confirm' => 'Delete all messages in this chat? This cannot be undone.',
-    'remove_chat' => 'Remove chat',
+    'remove_chat' => 'Remove from list',
     'remove_chat_confirm' => 'Remove this conversation from the list? Message history will be kept.',
     'delete_message' => 'Delete message',
     'delete_confirm' => 'Delete this message?',
+    'reply_to' => 'Reply to message',
+    'forwarded_from' => 'Forwarded from',
+    'reply' => 'Reply',
+    'cancel_reply' => 'Cancel reply',
 
     'formatting' => 'Formatting',
     'format_bold' => 'B',
@@ -82,6 +84,9 @@ return [
     'notification_sound_off' => 'Sound notifications: off',
 
     'close' => 'Close',
+    'phone' => 'Phone',
+    'phone_missing' => 'not set',
+    'phone_unverified' => 'not verified',
 
     'search_placeholder' => 'Search…',
 

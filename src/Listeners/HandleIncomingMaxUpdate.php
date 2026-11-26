@@ -6,7 +6,12 @@ namespace GeekCo\FilamentMaxChat\Listeners;
 
 use GeekCo\FilamentMaxChat\Services\MaxMessageService;
 use GeekCo\LaravelMaxClient\Webhook\MaxUpdateReceived;
-use GeekCo\MaxPhpClient\Enum\UpdateType;
+use GeekCo\MaxPhpClient\Dto\Update\ChatTitleChangedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\DialogClearedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\DialogRemovedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageCreatedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageEditedUpdate;
+use GeekCo\MaxPhpClient\Dto\Update\MessageRemovedUpdate;
 
 /**
  * Автообработка апдейтов MAX для истории переписки плагина. Включается ключом
@@ -33,13 +38,15 @@ class HandleIncomingMaxUpdate
 
     public function handle(MaxUpdateReceived $event): void
     {
-        match ($event->update->updateType) {
-            UpdateType::MessageCreated => $this->messages->storeIncoming($event->update),
-            UpdateType::MessageEdited => $this->messages->applyIncomingEdit($event->update),
-            UpdateType::MessageRemoved => $this->messages->applyIncomingRemoval($event->update),
-            UpdateType::DialogCleared => $this->messages->applyIncomingClear($event->update),
-            UpdateType::DialogRemoved => $this->messages->applyIncomingChatRemoval($event->update),
-            UpdateType::ChatTitleChanged => $this->messages->applyIncomingTitle($event->update),
+        $update = $event->update;
+
+        match (true) {
+            $update instanceof MessageCreatedUpdate => $this->messages->storeIncoming($update),
+            $update instanceof MessageEditedUpdate => $this->messages->applyIncomingEdit($update),
+            $update instanceof MessageRemovedUpdate => $this->messages->applyIncomingRemoval($update),
+            $update instanceof DialogClearedUpdate => $this->messages->applyIncomingClear($update),
+            $update instanceof DialogRemovedUpdate => $this->messages->applyIncomingChatRemoval($update),
+            $update instanceof ChatTitleChangedUpdate => $this->messages->applyIncomingTitle($update),
             default => null,
         };
     }

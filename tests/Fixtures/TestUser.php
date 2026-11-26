@@ -12,6 +12,7 @@ use Illuminate\Notifications\Notifiable;
  * @property string $email
  * @property bool $can_view_chat
  * @property bool $can_answer_chat
+ * @property bool $can_manage_chat
  */
 class TestUser extends BaseUser
 {
@@ -26,6 +27,7 @@ class TestUser extends BaseUser
         'password',
         'can_view_chat',
         'can_answer_chat',
+        'can_manage_chat',
     ];
 
     protected function casts(): array
@@ -33,6 +35,7 @@ class TestUser extends BaseUser
         return [
             'can_view_chat' => 'boolean',
             'can_answer_chat' => 'boolean',
+            'can_manage_chat' => 'boolean',
             'password' => 'hashed',
         ];
     }

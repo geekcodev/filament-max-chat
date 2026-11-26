@@ -33,6 +33,9 @@ class OperatorChat extends Component
 
     public string $reply = '';
 
+    #[Locked]
+    public ?int $replyToMessageId = null;
+
     public string $search = '';
 
     /** @var list<TemporaryUploadedFile> */
@@ -43,6 +46,9 @@ class OperatorChat extends Component
 
     #[Locked]
     public bool $canAnswer = false;
+
+    #[Locked]
+    public bool $canManage = false;
 
     private ?MaxMessageService $service = null;
 
@@ -59,7 +65,10 @@ class OperatorChat extends Component
 
     public function render(): View
     {
-        return view('filament-max-chat::components.operator-chat');
+        /** @var view-string $view */
+        $view = 'filament-max-chat::components.operator-chat';
+
+        return view($view);
     }
 
     public function mount(?int $chat = null, ?int $chat_id = null): void
@@ -71,6 +80,7 @@ class OperatorChat extends Component
         abort_unless($user !== null && $user->can($this->viewPermission()), 403);
 
         $this->canAnswer = $user->can($this->answerPermission());
+        $this->canManage = $user->can($this->managePermission());
 
         // С v1.2.0 адаптера первичный ключ max_chats — сам chat_id, поэтому
         // `chat` и `chat_id` значат одно и то же; различается только проверка
@@ -85,6 +95,7 @@ class OperatorChat extends Component
     public function selectChat(int $chatId): void
     {
         $this->activeChatId = $chatId;
+        $this->replyToMessageId = null;
 
         if ($this->prefetchIncludes('on_open')) {
             $this->profileRefresher?->refreshForChat($chatId);
@@ -123,7 +134,7 @@ class OperatorChat extends Component
     {
         $user = auth()->user();
 
-        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+        abort_unless($user !== null && $user->can($this->managePermission()), 403);
 
         if ($this->activeChatId === null) {
             return;
@@ -131,6 +142,7 @@ class OperatorChat extends Component
 
         $this->service?->clearHistory($this->activeChatId);
 
+        $this->replyToMessageId = null;
         $this->messages = new Collection();
 
         $this->dispatchUnreadCount();
@@ -140,7 +152,7 @@ class OperatorChat extends Component
     {
         $user = auth()->user();
 
-        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+        abort_unless($user !== null && $user->can($this->managePermission()), 403);
 
         if ($this->activeChatId === null) {
             return;
@@ -150,6 +162,7 @@ class OperatorChat extends Component
         $this->service?->removeChat($chatId);
 
         $this->activeChatId = null;
+        $this->replyToMessageId = null;
         $this->messages = new Collection();
 
         $this->dispatchUnreadCount();
@@ -171,6 +184,7 @@ class OperatorChat extends Component
     {
         if ($this->activeChatId === $chatId) {
             $this->activeChatId = null;
+            $this->replyToMessageId = null;
             $this->messages = new Collection();
         }
 
@@ -181,9 +195,13 @@ class OperatorChat extends Component
     {
         $user = auth()->user();
 
-        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+        abort_unless($user !== null && $user->can($this->managePermission()), 403);
 
         $this->service?->deleteMessage($messageId);
+
+        if ($this->replyToMessageId === $messageId) {
+            $this->replyToMessageId = null;
+        }
 
         $this->messages = $this->messages->reject(
             static fn (MaxMessage $m): bool => $m->id === $messageId,
@@ -276,6 +294,46 @@ class OperatorChat extends Component
         $this->validateOnly('attachments', $this->rules());
     }
 
+    public function startReply(int $messageId): void
+    {
+        $user = auth()->user();
+
+        abort_unless($user !== null && $user->can($this->answerPermission()), 403);
+
+        if ($this->activeChatId === null) {
+            return;
+        }
+
+        $message = MaxMessage::query()
+            ->where('max_chat_id', $this->activeChatId)
+            ->whereKey($messageId)
+            ->first();
+
+        if (! $message instanceof MaxMessage || ! filled($message->message_id)) {
+            return;
+        }
+
+        $this->replyToMessageId = $message->id;
+    }
+
+    public function cancelReply(): void
+    {
+        $this->replyToMessageId = null;
+    }
+
+    #[Computed]
+    public function replyTarget(): ?MaxMessage
+    {
+        if ($this->activeChatId === null || $this->replyToMessageId === null) {
+            return null;
+        }
+
+        return MaxMessage::query()
+            ->where('max_chat_id', $this->activeChatId)
+            ->whereKey($this->replyToMessageId)
+            ->first();
+    }
+
     public function sendReply(): void
     {
         $user = auth()->user();
@@ -297,6 +355,15 @@ class OperatorChat extends Component
         $maxCaption = $caption !== null ? (string) $this->sanitizer?->toMaxHtml($caption) : null;
         $recipient = new Recipient(chatId: $chat->chat_id, userId: $chat->interlocutorId());
 
+        $replyTarget = $this->replyTarget();
+        $replyToMessageId = $replyTarget?->message_id;
+
+        if (! is_string($replyToMessageId) || $replyToMessageId === '') {
+            $replyToMessageId = null;
+        }
+
+        $link = $replyTarget?->replyLinkData();
+
         try {
             $attachments = $this->attachments;
             $store = app(MaxAttachmentStore::class);
@@ -311,7 +378,13 @@ class OperatorChat extends Component
                     $attachments,
                 );
 
-                app(MaxChatSender::class)->sendAttachments($recipient, $types, $paths, $maxCaption);
+                if ($replyToMessageId !== null) {
+                    app(MaxChatSender::class)->sendAttachments($recipient, $types, $paths, $maxCaption, $replyToMessageId);
+                } else {
+                    app(MaxChatSender::class)->sendAttachments($recipient, $types, $paths, $maxCaption);
+                }
+            } elseif ($replyToMessageId !== null) {
+                app(MaxChatSender::class)->sendFormatted($recipient, (string) $maxCaption, $replyToMessageId);
             } else {
                 app(MaxChatSender::class)->sendFormatted($recipient, (string) $maxCaption);
             }
@@ -345,9 +418,10 @@ class OperatorChat extends Component
             sender: MaxMessageSender::Operator,
             operatorId: $operatorId,
             attachments: $attachmentMeta,
+            link: $link,
         );
 
-        $this->reset('reply', 'attachments');
+        $this->reset('reply', 'attachments', 'replyToMessageId');
 
         $this->dispatch('clear-file-input');
         $this->loadMessages();
@@ -424,6 +498,11 @@ class OperatorChat extends Component
         }
 
         $this->loadMessages();
+
+        if ($this->replyToMessageId !== null && $this->replyTarget() === null) {
+            $this->replyToMessageId = null;
+        }
+
         $this->dispatchUnreadCount();
     }
 
@@ -487,7 +566,8 @@ class OperatorChat extends Component
             }
 
             if ($freshById->get($message->id)?->text !== $message->text
-                || $freshById->get($message->id)?->attachment !== $message->attachment) {
+                || $freshById->get($message->id)?->attachment !== $message->attachment
+                || $freshById->get($message->id)?->link !== $message->link) {
                 $this->loadMessages();
 
                 return;
@@ -534,12 +614,17 @@ class OperatorChat extends Component
 
     private function viewPermission(): string
     {
-        return config()->string('filament-max-chat.permissions.view', 'chat.view');
+        return config()->string('filament-max-chat.permissions.view', 'max_chat.view');
     }
 
     private function answerPermission(): string
     {
-        return config()->string('filament-max-chat.permissions.answer', 'chat.answer');
+        return config()->string('filament-max-chat.permissions.answer', 'max_chat.answer');
+    }
+
+    private function managePermission(): string
+    {
+        return config()->string('filament-max-chat.permissions.manage', 'max_chat.manage');
     }
 
     private function prefetchIncludes(string $trigger): bool
@@ -547,6 +632,27 @@ class OperatorChat extends Component
         $prefetch = (string) config()->string('filament-max-chat.profile.prefetch', 'both');
 
         return $prefetch === 'both' || $prefetch === $trigger;
+    }
+
+    /**
+     * Кнопка «Запросить контакт» нужна, пока телефон собеседника не подтверждён.
+     *
+     * Подтверждённым считается только номер из подписанного контакта: адаптер
+     * `laravel-max-client` пишет его в `max_users.phone` и ставит
+     * `phone_verified_at`. Номер, заполненный другим путём, доверия не даёт —
+     * его нельзя считать верным, поэтому кнопка остаётся доступной и позволяет
+     * запросить подтверждение.
+     */
+    #[Computed]
+    public function canRequestContact(): bool
+    {
+        $chatUser = $this->activeConversation()?->interlocutor();
+
+        if ($chatUser === null) {
+            return false;
+        }
+
+        return blank($chatUser->phone) || $chatUser->phone_verified_at === null;
     }
 
     /**

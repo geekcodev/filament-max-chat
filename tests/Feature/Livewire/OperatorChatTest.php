@@ -114,6 +114,36 @@ class OperatorChatTest extends TestCase
         $this->assertDatabaseHas('max_chat_messages', ['max_chat_id' => $chat->chat_id]);
     }
 
+    public function test_remove_chat_requires_manage_permission(): void
+    {
+        $user = $this->createUser(canView: true, canAnswer: true);
+        $chat = $this->createChat();
+
+        Livewire::actingAs($user)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('removeChat')
+            ->assertForbidden();
+
+        $fresh = $chat->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertNotSame(MaxChatStatus::Removed, $fresh->status);
+    }
+
+    public function test_manage_permission_without_answer_can_remove_chat(): void
+    {
+        $manager = $this->createUser(canView: true, canManage: true);
+        $chat = $this->createChat();
+
+        Livewire::actingAs($manager)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('removeChat')
+            ->assertSet('activeChatId', null);
+
+        $fresh = $chat->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertSame(MaxChatStatus::Removed, $fresh->status);
+    }
+
     public function test_select_chat_dispatches_profile_refresh_when_avatar_empty(): void
     {
         $staff = $this->createStaff();
@@ -167,6 +197,165 @@ class OperatorChatTest extends TestCase
             'text' => 'Привет!',
             'operator_id' => $staff->id,
         ]);
+    }
+
+    public function test_reply_to_message_sends_link_and_stores_quote(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $target = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Исходное сообщение',
+            messageId: 'orig-1',
+        );
+
+        $this->mock(MaxChatSender::class)
+            ->shouldReceive('sendFormatted')
+            ->once()
+            ->with(
+                Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222 && $recipient->userId === 111),
+                'Привет!',
+                'orig-1',
+            );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $target->id)
+            ->assertSet('replyToMessageId', $target->id)
+            ->assertSee('Исходное сообщение')
+            ->set('reply', 'Привет!')
+            ->call('sendReply')
+            ->assertHasNoErrors()
+            ->assertSet('replyToMessageId', null);
+
+        $outgoing = MaxMessage::query()
+            ->where('max_chat_id', $chat->chat_id)
+            ->where('direction', MaxMessageDirection::Out)
+            ->first();
+
+        $this->assertNotNull($outgoing);
+        $this->assertIsArray($outgoing->link);
+
+        /** @var array<string, mixed> $link */
+        $link = $outgoing->link;
+
+        $this->assertSame('reply', $link['type']);
+        $this->assertSame('orig-1', $link['mid']);
+        $this->assertSame('Исходное сообщение', $link['text']);
+    }
+
+    public function test_reply_with_attachment_passes_link_to_max(): void
+    {
+        Storage::fake('local');
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $target = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Исходное',
+            messageId: 'orig-2',
+        );
+
+        $this->mock(MaxChatSender::class)
+            ->shouldReceive('sendAttachments')
+            ->once()
+            ->with(
+                Mockery::on(static fn (Recipient $recipient): bool => $recipient->chatId === 222),
+                [UploadType::File],
+                Mockery::on(static fn (array $paths): bool => is_string($paths[0] ?? null) && is_file($paths[0])),
+                null,
+                'orig-2',
+            );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $target->id)
+            ->set('attachments', [UploadedFile::fake()->create('doc.pdf', 100, 'application/pdf')])
+            ->call('sendReply')
+            ->assertHasNoErrors();
+    }
+
+    public function test_reply_button_visible_only_for_messages_with_max_id(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $fromMax = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Из MAX',
+            messageId: 'orig-3',
+        );
+        $local = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Локальное',
+        );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('startReply('.$fromMax->id.')', false)
+            ->assertDontSee('startReply('.$local->id.')', false);
+    }
+
+    public function test_start_reply_requires_answer_permission(): void
+    {
+        $user = $this->createUser(canView: true);
+        $chat = $this->createChat();
+        $target = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Исходное',
+            messageId: 'orig-5',
+        );
+
+        Livewire::actingAs($user)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $target->id)
+            ->assertForbidden();
+    }
+
+    public function test_start_reply_ignores_message_from_another_chat(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $otherChat = $this->makeChatWithUser(333, 111);
+        $foreign = $this->createMessage(
+            $otherChat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Чужое',
+            messageId: 'orig-6',
+        );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $foreign->id)
+            ->assertSet('replyToMessageId', null);
+    }
+
+    public function test_cancel_reply_clears_target(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $target = $this->createMessage(
+            $chat,
+            MaxMessageDirection::In,
+            MaxMessageSender::User,
+            'Исходное',
+            messageId: 'orig-4',
+        );
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('startReply', $target->id)
+            ->call('cancelReply')
+            ->assertSet('replyToMessageId', null);
     }
 
     public function test_reply_requires_answer_permission(): void
@@ -539,9 +728,9 @@ class OperatorChatTest extends TestCase
         $this->assertDatabaseCount('max_chat_messages', 0);
     }
 
-    public function test_clear_chat_requires_answer_permission(): void
+    public function test_clear_chat_requires_manage_permission(): void
     {
-        $user = $this->createUser(canView: true);
+        $user = $this->createUser(canView: true, canAnswer: true);
         $chat = $this->createChat();
         $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
 
@@ -551,6 +740,22 @@ class OperatorChatTest extends TestCase
             ->assertForbidden();
 
         $this->assertDatabaseCount('max_chat_messages', 1);
+    }
+
+    public function test_manage_permission_without_answer_can_clear_chat(): void
+    {
+        $manager = $this->createUser(canView: true, canManage: true);
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
+
+        $this->mock(MaxChatSender::class)->shouldReceive('deleteMessage')->zeroOrMoreTimes();
+
+        Livewire::actingAs($manager)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('clearChat')
+            ->assertSet('messages', new \Illuminate\Support\Collection());
+
+        $this->assertDatabaseCount('max_chat_messages', 0);
     }
 
     public function test_clear_chat_is_noop_without_active_chat(): void
@@ -619,9 +824,9 @@ class OperatorChatTest extends TestCase
         $this->assertDatabaseMissing('max_chat_messages', ['id' => $message->id]);
     }
 
-    public function test_delete_message_requires_answer_permission(): void
+    public function test_delete_message_requires_manage_permission(): void
     {
-        $user = $this->createUser(canView: true);
+        $user = $this->createUser(canView: true, canAnswer: true);
         $chat = $this->createChat();
         $message = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
 
@@ -631,6 +836,19 @@ class OperatorChatTest extends TestCase
             ->assertForbidden();
 
         $this->assertDatabaseCount('max_chat_messages', 1);
+    }
+
+    public function test_manage_permission_without_answer_can_delete_message(): void
+    {
+        $manager = $this->createUser(canView: true, canManage: true);
+        $chat = $this->createChat();
+        $message = $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Удаляемое');
+
+        Livewire::actingAs($manager)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->call('deleteMessage', $message->id);
+
+        $this->assertDatabaseMissing('max_chat_messages', ['id' => $message->id]);
     }
 
     public function test_load_more_messages_prepends_older(): void
@@ -1212,6 +1430,94 @@ class OperatorChatTest extends TestCase
             ->assertSee('tel:+79990001122', false);
     }
 
+    public function test_user_info_modal_shows_phone_and_tel_link(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, ['phone' => '+79990001122']);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.phone'))
+            ->assertSee('+79990001122')
+            ->assertSee('tel:+79990001122', false)
+            ->assertSee(__('filament-max-chat::chat.phone_unverified'));
+    }
+
+    public function test_user_info_modal_does_not_mark_verified_phone(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, [
+            'phone' => '+79990001122',
+            'phone_verified_at' => now(),
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('tel:+79990001122', false)
+            ->assertDontSee(__('filament-max-chat::chat.phone_unverified'));
+    }
+
+    public function test_user_info_modal_shows_missing_phone_hint(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.phone_missing'));
+    }
+
+    public function test_user_info_modal_escapes_phone_markup(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, ['phone' => '"><script>alert(1)</script>']);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertDontSee('<script>alert(1)</script>', false);
+    }
+
+    public function test_user_info_modal_is_accessible_dialog(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('role="dialog"', false)
+            ->assertSee('aria-modal="true"', false)
+            ->assertSee('aria-labelledby="fmc-user-info-title-', false)
+            ->assertSee('x-trap.noscroll="showUserInfo"', false)
+            ->assertSee('aria-haspopup="dialog"', false);
+    }
+
+    public function test_user_info_modal_offers_request_contact_for_unverified_phone(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, ['phone' => '+79990001122']);
+
+        $html = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->html();
+
+        $this->assertSame(2, substr_count($html, 'wire:click="requestContact"'));
+    }
+
+    public function test_user_info_modal_hides_request_contact_for_verified_phone(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, [
+            'phone' => '+79990001122',
+            'phone_verified_at' => now(),
+        ]);
+
+        $html = Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->html();
+
+        $this->assertSame(0, substr_count($html, 'wire:click="requestContact"'));
+    }
+
     public function test_incoming_location_message_renders_map_link(): void
     {
         $staff = $this->createStaff();
@@ -1224,8 +1530,24 @@ class OperatorChatTest extends TestCase
 
         Livewire::actingAs($staff)
             ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
-            ->assertSee('openstreetmap.org', false)
+            ->assertSee('yandex.ru/maps/?pt=37.6173,55.7558', false)
             ->assertSee('55.7558');
+    }
+
+    public function test_incoming_location_with_non_numeric_metadata_does_not_build_map_link(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessageWithAttachment($chat, [
+            'type' => 'location',
+            'latitude' => '55.7558&z=1',
+            'longitude' => '37.6173',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertDontSee('yandex.ru/maps', false)
+            ->assertSee(__('filament-max-chat::chat.preview.location'));
     }
 
     public function test_incoming_share_message_renders_title_and_link(): void
@@ -1260,6 +1582,59 @@ class OperatorChatTest extends TestCase
             ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
             ->assertSee('Заголовок статьи')
             ->assertDontSee('javascript:alert(1)', false);
+    }
+
+    public function test_incoming_reply_renders_quoted_message(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Согласен', [
+            'type' => 'reply',
+            'mid' => 'orig-1',
+            'sender_name' => 'Иван Петров',
+            'text' => 'Исходное сообщение',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.reply_to'))
+            ->assertSee('Иван Петров')
+            ->assertSee('Исходное сообщение')
+            ->assertSee('Согласен');
+    }
+
+    public function test_incoming_forward_renders_forward_label(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Смотрите', [
+            'type' => 'forward',
+            'mid' => 'orig-2',
+            'sender_name' => 'Мария',
+            'attachment_type' => 'image',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.forwarded_from'))
+            ->assertSee('Мария')
+            ->assertSee(__('filament-max-chat::chat.preview.image'));
+    }
+
+    public function test_incoming_reply_escapes_quoted_text(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Ответ', [
+            'type' => 'reply',
+            'mid' => 'orig-3',
+            'text' => '<script>alert(1)</script>',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat_id' => $chat->chat_id])
+            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
+            ->assertDontSee('<script>alert(1)</script>', false);
     }
 
     public function test_incoming_inline_keyboard_message_renders_button_chips(): void
@@ -1305,7 +1680,7 @@ class OperatorChatTest extends TestCase
         ]);
     }
 
-    private function createUser(bool $canView = false, bool $canAnswer = false): TestUser
+    private function createUser(bool $canView = false, bool $canAnswer = false, bool $canManage = false): TestUser
     {
         return TestUser::query()->create([
             'name' => 'Тест Юзер',
@@ -1313,12 +1688,13 @@ class OperatorChatTest extends TestCase
             'password' => 'password',
             'can_view_chat' => $canView,
             'can_answer_chat' => $canAnswer,
+            'can_manage_chat' => $canManage,
         ]);
     }
 
     private function createStaff(): TestUser
     {
-        return $this->createUser(canView: true, canAnswer: true);
+        return $this->createUser(canView: true, canAnswer: true, canManage: true);
     }
 
     private function createChat(): MaxChat
@@ -1326,19 +1702,26 @@ class OperatorChatTest extends TestCase
         return $this->makeChatWithUser(222, 111);
     }
 
+    /**
+     * @param array<string, mixed>|null $link
+     */
     private function createMessage(
         MaxChat $chat,
         MaxMessageDirection $direction,
         MaxMessageSender $sender,
         ?string $text,
+        ?array $link = null,
+        ?string $messageId = null,
     ): MaxMessage {
         return MaxMessage::query()->create([
             'max_chat_id' => $chat->chat_id,
             'user_id' => 111,
             'chat_id' => $chat->chat_id,
+            'message_id' => $messageId,
             'direction' => $direction,
             'sender_type' => $sender,
             'text' => $text,
+            'link' => $link,
         ]);
     }
 
@@ -1437,6 +1820,99 @@ class OperatorChatTest extends TestCase
             ->assertHasNoErrors();
     }
 
+    public function test_request_contact_button_is_visible_when_phone_is_missing(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.request_contact'));
+    }
+
+    public function test_request_contact_button_is_visible_when_phone_is_not_verified(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, ['phone' => '+79990001122']);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee(__('filament-max-chat::chat.request_contact'));
+    }
+
+    public function test_request_contact_button_is_hidden_when_phone_is_verified(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->makeChatWithUser(222, 111, [
+            'phone' => '+79990001122',
+            'phone_verified_at' => now(),
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertDontSee(__('filament-max-chat::chat.request_contact'));
+    }
+
+    public function test_header_builtin_actions_use_bordered_semantic_buttons(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('aria-label="'.__('filament-max-chat::chat.remove_chat').'"', false)
+            ->assertSee('aria-label="'.__('filament-max-chat::chat.clear_history').'"', false)
+            ->assertSee('border-amber-200', false)
+            ->assertSee('border-red-200', false);
+    }
+
+    public function test_header_manage_actions_hidden_without_manage_permission(): void
+    {
+        $user = $this->createUser(canView: true, canAnswer: true);
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
+
+        Livewire::actingAs($user)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertDontSee('aria-label="'.__('filament-max-chat::chat.remove_chat').'"', false)
+            ->assertDontSee('aria-label="'.__('filament-max-chat::chat.clear_history').'"', false)
+            ->assertDontSee(__('filament-max-chat::chat.delete_message'));
+    }
+
+    public function test_header_manage_actions_visible_for_manager_without_answer(): void
+    {
+        $manager = $this->createUser(canView: true, canManage: true);
+        $chat = $this->createChat();
+        $this->createMessage($chat, MaxMessageDirection::In, MaxMessageSender::User, 'Сообщение');
+
+        Livewire::actingAs($manager)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('aria-label="'.__('filament-max-chat::chat.remove_chat').'"', false)
+            ->assertSee('aria-label="'.__('filament-max-chat::chat.clear_history').'"', false)
+            ->assertSee(__('filament-max-chat::chat.delete_message'))
+            ->assertSee(__('filament-max-chat::chat.no_answer_permission'));
+    }
+
+    public function test_header_actions_render_default_bordered_style_and_divider(): void
+    {
+        $staff = $this->createStaff();
+        $chat = $this->createChat();
+
+        config()->set('filament-max-chat.actions.header', [
+            [
+                'label' => 'Создать заявку',
+                'icon' => 'heroicon-o-document-plus',
+                'url' => 'https://example.test/leads',
+            ],
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(OperatorChat::class, ['chat' => $chat->chat_id])
+            ->assertSee('aria-label="Создать заявку"', false)
+            ->assertSee('border-gray-200', false)
+            ->assertSee('h-5 w-px', false);
+    }
+
     public function test_header_actions_resolve_callable_with_chat_context(): void
     {
         $staff = $this->createStaff();
@@ -1448,7 +1924,7 @@ class OperatorChatTest extends TestCase
                 'url' => static fn (?MaxChat $context, $chatUser): string => 'https://example.test/leads?chat_id='
                     .($context instanceof MaxChat ? (string) $context->chat_id : ''),
                 'visible' => static fn (?MaxChat $context): bool => $context instanceof MaxChat,
-                'permission' => 'chat.view',
+                'permission' => 'max_chat.view',
             ],
         ]);
 

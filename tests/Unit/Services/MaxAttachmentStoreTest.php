@@ -6,18 +6,24 @@ namespace GeekCo\FilamentMaxChat\Tests\Unit\Services;
 
 use GeekCo\FilamentMaxChat\Services\MaxAttachmentStore;
 use GeekCo\FilamentMaxChat\Tests\TestCase;
-use GeekCo\MaxPhpClient\Dto\Attachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\AudioAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\ContactAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\FileAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\InlineKeyboardAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\LocationAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\PhotoAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\ShareAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\StickerAttachment;
+use GeekCo\MaxPhpClient\Dto\Attachment\VideoAttachment;
+use GeekCo\MaxPhpClient\Dto\Button\CallbackButton;
+use GeekCo\MaxPhpClient\Dto\Button\LinkButton;
 use GeekCo\MaxPhpClient\Dto\ContactAttachmentPayload;
 use GeekCo\MaxPhpClient\Dto\FileAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\ImageAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButton;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow;
-use GeekCo\MaxPhpClient\Dto\LocationAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\VideoAttachmentPayload;
-use GeekCo\MaxPhpClient\Dto\VideoUrls;
-use GeekCo\MaxPhpClient\Enum\AttachmentType;
-use GeekCo\MaxPhpClient\Enum\ButtonType;
+use GeekCo\MaxPhpClient\Dto\Keyboard;
+use GeekCo\MaxPhpClient\Dto\MediaAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\PhotoAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\ShareAttachmentPayload;
+use GeekCo\MaxPhpClient\Dto\StickerAttachmentPayload;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -36,10 +42,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/photo.png'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(photoId: 1, token: 'photo-token', url: 'https://cdn.max.ru/photo.png')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -61,10 +64,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/missing.jpg'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(photoId: 1, token: 'photo-token', url: 'https://cdn.max.ru/missing.jpg')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -82,10 +82,7 @@ class MaxAttachmentStoreTest extends TestCase
         config()->set('filament-max-chat.attachments.max_bytes', 10);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/big.jpg'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(photoId: 1, token: 'photo-token', url: 'https://cdn.max.ru/big.jpg')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -101,10 +98,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::File,
-                payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/media/b2f/report.pdf'),
-            ),
+            new FileAttachment(new FileAttachmentPayload(url: 'https://cdn.max.ru/media/b2f/report.pdf', token: 'file-token')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -123,10 +117,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::File,
-                payload: new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?rq=abc&expires=123'),
-            ),
+            new FileAttachment(new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?rq=abc&expires=123', token: 'file-token')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -145,7 +136,7 @@ class MaxAttachmentStoreTest extends TestCase
         Http::fake();
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Video, payload: []),
+            new VideoAttachment(new MediaAttachmentPayload(url: 'https://cdn.max.ru/video.mp4', token: 'video-token')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -158,7 +149,7 @@ class MaxAttachmentStoreTest extends TestCase
     public function test_no_media_attachments_returns_empty_list(): void
     {
         $this->assertSame([], app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::InlineKeyboard, payload: []),
+            new InlineKeyboardAttachment(new Keyboard([])),
         ]));
         $this->assertSame([], app(MaxAttachmentStore::class)->storeFromIncoming(null));
     }
@@ -266,10 +257,10 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Audio,
-                payload: new \GeekCo\MaxPhpClient\Dto\AudioAttachmentPayload(url: 'https://cdn.max.ru/voice.mp3'),
-            ),
+            new AudioAttachment(new MediaAttachmentPayload(
+                url: 'https://cdn.max.ru/voice.mp3',
+                token: 'audio-token',
+            )),
         ]);
 
         $this->assertCount(1, $meta);
@@ -287,10 +278,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::File,
-                payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/data.csv'),
-            ),
+            new FileAttachment(new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/data.csv', token: 'file-token')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -308,11 +296,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::File,
-                payload: new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?rq=abc&expires=123'),
-                filename: 'Отчёт за 2026 год.pdf',
-            ),
+            new FileAttachment(new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?rq=abc&expires=123', token: 'file-token'), filename: 'Отчёт за 2026 год.pdf'),
         ]);
 
         $this->assertCount(1, $meta);
@@ -333,13 +317,13 @@ class MaxAttachmentStoreTest extends TestCase
         Http::fake(fn () => Http::response('file-bytes', 200, ['Content-Type' => 'application/octet-stream']));
 
         $store = app(MaxAttachmentStore::class);
-        $payload = new FileAttachmentPayload(url: 'https://cdn.max.ru/getfile?rq=abc');
+        $payload = new FileAttachmentPayload(url: 'https://cdn.max.ru/getfile?rq=abc', token: 'file-token');
 
         $withSlashes = $store->storeFromIncoming([
-            new Attachment(type: AttachmentType::File, payload: $payload, filename: '../../../etc/passwd'),
+            new FileAttachment($payload, filename: '../../../etc/passwd'),
         ]);
         $withBackslashes = $store->storeFromIncoming([
-            new Attachment(type: AttachmentType::File, payload: $payload, filename: 'C:\\Users\\max\\report.docx'),
+            new FileAttachment($payload, filename: 'C:\\Users\\max\\report.docx'),
         ]);
 
         $slashed = $withSlashes[0];
@@ -360,11 +344,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::File,
-                payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/getfile?rq=abc'),
-                filename: "report\r\n\x00final.pdf",
-            ),
+            new FileAttachment(new FileAttachmentPayload(url: 'https://cdn.max.ru/getfile?rq=abc', token: 'file-token'), filename: "report\r\n\x00final.pdf"),
         ]);
 
         $meta = $meta[0];
@@ -379,13 +359,13 @@ class MaxAttachmentStoreTest extends TestCase
         Http::fake(fn () => Http::response('file-bytes', 200, ['Content-Type' => 'application/octet-stream']));
 
         $store = app(MaxAttachmentStore::class);
-        $payload = new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/report.pdf');
+        $payload = new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/report.pdf', token: 'file-token');
 
         $empty = $store->storeFromIncoming([
-            new Attachment(type: AttachmentType::File, payload: $payload, filename: ''),
+            new FileAttachment($payload, filename: ''),
         ]);
         $dots = $store->storeFromIncoming([
-            new Attachment(type: AttachmentType::File, payload: $payload, filename: '...'),
+            new FileAttachment($payload, filename: '...'),
         ]);
 
         $emptyMeta = $empty[0];
@@ -404,11 +384,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::File,
-                payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/data.csv'),
-                filename: 'README',
-            ),
+            new FileAttachment(new FileAttachmentPayload(url: 'https://cdn.max.ru/docs/data.csv', token: 'file-token'), filename: 'README'),
         ]);
 
         $meta = $meta[0];
@@ -426,12 +402,10 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Sticker, payload: [
-                'url' => 'https://cdn.max.ru/stickers/s1.webp',
-                'code' => 's1',
-                'width' => 512,
-                'height' => 512,
-            ]),
+            new StickerAttachment(new StickerAttachmentPayload(
+                url: 'https://cdn.max.ru/stickers/s1.webp',
+                code: 's1',
+            )),
         ]);
 
         $this->assertCount(1, $meta);
@@ -448,7 +422,7 @@ class MaxAttachmentStoreTest extends TestCase
         Http::fake();
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Sticker, payload: ['code' => 's2']),
+            new StickerAttachment(new StickerAttachmentPayload(url: '', code: 's2')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -459,24 +433,12 @@ class MaxAttachmentStoreTest extends TestCase
         $this->assertSame([], Http::recorded()->all());
     }
 
-    public function test_store_from_incoming_sticker_with_non_array_payload_stores_type_only(): void
-    {
-        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Sticker,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/nope.webp'),
-            ),
-        ]);
-
-        $this->assertSame([['type' => 'sticker']], $meta);
-    }
-
     public function test_store_from_incoming_contact_uses_max_info_name_and_vcf_phone(): void
     {
         $vcf = "BEGIN:VCARD\nVERSION:3.0\nFN:Мария Сидорова\nTEL;TYPE=CELL:+79990001122\nEND:VCARD";
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+            new ContactAttachment(new ContactAttachmentPayload(
                 hash: 'abc',
                 vcfInfo: $vcf,
                 maxInfo: ['name' => 'Мария Сидорова'],
@@ -496,7 +458,7 @@ class MaxAttachmentStoreTest extends TestCase
         $vcf = 'BEGIN:VCARD\\nVERSION:3.0\\nFN:Пётр Иванов\\nTEL;TYPE=CELL:+79995556677\\nEND:VCARD';
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+            new ContactAttachment(new ContactAttachmentPayload(
                 hash: 'abc',
                 vcfInfo: $vcf,
             )),
@@ -512,7 +474,7 @@ class MaxAttachmentStoreTest extends TestCase
     public function test_store_from_incoming_contact_builds_name_from_first_and_last_name(): void
     {
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+            new ContactAttachment(new ContactAttachmentPayload(
                 hash: 'abc',
                 maxInfo: ['first_name' => 'Иван', 'last_name' => 'Петров'],
             )),
@@ -523,39 +485,13 @@ class MaxAttachmentStoreTest extends TestCase
         $this->assertArrayNotHasKey('phone', $meta[0]);
     }
 
-    public function test_store_from_incoming_contact_without_data_stores_type_only(): void
-    {
-        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Contact, payload: []),
-        ]);
-
-        $this->assertSame([['type' => 'contact']], $meta);
-    }
-
     public function test_store_from_incoming_contact_with_empty_payload_object_stores_type_only(): void
     {
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(hash: 'abc')),
+            new ContactAttachment(new ContactAttachmentPayload(hash: 'abc')),
         ]);
 
         $this->assertSame([['type' => 'contact']], $meta);
-    }
-
-    public function test_store_from_incoming_contact_prefers_plain_phone_over_vcf(): void
-    {
-        $vcf = "BEGIN:VCARD\nFN:Мария\nTEL;TYPE=CELL:+70000000000\nEND:VCARD";
-
-        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
-                hash: 'abc',
-                vcfInfo: $vcf,
-                vcfPhone: '+79990001122',
-            )),
-        ]);
-
-        $this->assertCount(1, $meta);
-        $this->assertSame('Мария', $meta[0]['name'] ?? null);
-        $this->assertSame('+79990001122', $meta[0]['phone'] ?? null);
     }
 
     public function test_store_from_incoming_contact_with_phone_only_vcard_has_no_name(): void
@@ -563,7 +499,7 @@ class MaxAttachmentStoreTest extends TestCase
         $vcf = "BEGIN:VCARD\nTEL;TYPE=CELL:+79995556677\nEND:VCARD";
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Contact, payload: new ContactAttachmentPayload(
+            new ContactAttachment(new ContactAttachmentPayload(
                 hash: 'abc',
                 vcfInfo: $vcf,
             )),
@@ -577,7 +513,7 @@ class MaxAttachmentStoreTest extends TestCase
     public function test_store_from_incoming_location_uses_top_level_coordinates(): void
     {
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Location, latitude: 55.7558, longitude: 37.6173),
+            new LocationAttachment(latitude: 55.7558, longitude: 37.6173),
         ]);
 
         $this->assertCount(1, $meta);
@@ -587,39 +523,15 @@ class MaxAttachmentStoreTest extends TestCase
         $this->assertSame(37.6173, $meta['longitude'] ?? null);
     }
 
-    public function test_store_from_incoming_location_falls_back_to_nested_payload(): void
-    {
-        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Location, payload: new LocationAttachmentPayload(
-                latitude: 59.93,
-                longitude: 30.33,
-            )),
-        ]);
-
-        $this->assertCount(1, $meta);
-        $meta = $meta[0];
-        $this->assertSame(59.93, $meta['latitude'] ?? null);
-        $this->assertSame(30.33, $meta['longitude'] ?? null);
-    }
-
-    public function test_store_from_incoming_location_without_coordinates_stores_type_only(): void
-    {
-        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Location),
-        ]);
-
-        $this->assertSame([['type' => 'location']], $meta);
-    }
-
     public function test_store_from_incoming_share_stores_link_metadata(): void
     {
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Share, payload: [
-                'url' => 'https://example.com/article',
-                'title' => 'Заголовок',
-                'description' => 'Описание',
-                'image_url' => 'https://example.com/cover.png',
-            ]),
+            new ShareAttachment(
+                new ShareAttachmentPayload(url: 'https://example.com/article', token: 'share-token'),
+                title: 'Заголовок',
+                description: 'Описание',
+                imageUrl: 'https://example.com/cover.png',
+            ),
         ]);
 
         $this->assertCount(1, $meta);
@@ -636,7 +548,7 @@ class MaxAttachmentStoreTest extends TestCase
     {
         foreach ([123, '', 'javascript:alert(1)', '/relative'] as $invalid) {
             $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-                new Attachment(type: AttachmentType::Share, payload: ['url' => $invalid]),
+                new ShareAttachment(new ShareAttachmentPayload(url: is_string($invalid) ? $invalid : null)),
             ]);
 
             $this->assertCount(1, $meta);
@@ -648,11 +560,10 @@ class MaxAttachmentStoreTest extends TestCase
     public function test_store_from_incoming_share_truncates_oversized_and_ignores_non_string_fields(): void
     {
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Share, payload: [
-                'url' => 'https://example.com',
-                'title' => 123,
-                'description' => str_repeat('d', 5000),
-            ]),
+            new ShareAttachment(
+                new ShareAttachmentPayload(url: 'https://example.com'),
+                description: str_repeat('d', 5000),
+            ),
         ]);
 
         $this->assertCount(1, $meta);
@@ -661,32 +572,15 @@ class MaxAttachmentStoreTest extends TestCase
         $this->assertSame(2000, mb_strlen($meta['description'] ?? ''));
     }
 
-    public function test_store_from_incoming_share_with_non_array_payload_stores_type_only(): void
-    {
-        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Share,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/nope.png'),
-            ),
-        ]);
-
-        $this->assertSame([['type' => 'share']], $meta);
-    }
-
     public function test_store_from_incoming_inline_keyboard_stores_button_texts(): void
     {
-        $payload = new InlineKeyboardAttachmentPayload(rows: [
-            new InlineKeyboardButtonRow(buttons: [
-                new InlineKeyboardButton(type: ButtonType::Callback, text: 'Да'),
-                new InlineKeyboardButton(type: ButtonType::Callback, text: 'Нет'),
-            ]),
-            new InlineKeyboardButtonRow(buttons: [
-                new InlineKeyboardButton(type: ButtonType::Link, text: 'Сайт', url: 'https://example.com'),
-            ]),
+        $keyboard = new Keyboard([
+            [new CallbackButton('Да', 'yes'), new CallbackButton('Нет', 'no')],
+            [new LinkButton('Сайт', 'https://example.com')],
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::InlineKeyboard, payload: $payload),
+            new InlineKeyboardAttachment($keyboard),
         ]);
 
         $this->assertCount(1, $meta);
@@ -698,47 +592,25 @@ class MaxAttachmentStoreTest extends TestCase
     public function test_store_from_incoming_inline_keyboard_without_buttons_is_skipped(): void
     {
         $this->assertSame([], app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::InlineKeyboard,
-                payload: new InlineKeyboardAttachmentPayload(rows: []),
-            ),
+            new InlineKeyboardAttachment(new Keyboard([])),
         ]));
     }
 
-    public function test_store_from_incoming_video_downloads_mp4(): void
-    {
-        Storage::fake('local');
-        Http::fake([
-            'cdn.max.ru/*' => Http::response('mp4-bytes', 200, ['Content-Type' => 'video/mp4']),
-        ]);
-
-        $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(type: AttachmentType::Video, payload: new VideoAttachmentPayload(
-                url: new VideoUrls(mp4: 'https://cdn.max.ru/clip.mp4'),
-            )),
-        ]);
-
-        $this->assertCount(1, $meta);
-        $meta = $meta[0];
-        $this->assertSame('video', $meta['type']);
-        $this->assertArrayHasKey('path', $meta);
-        $this->assertStringEndsWith('.mp4', $meta['path']);
-        Storage::disk('local')->assertExists($meta['path']);
-    }
-
-    public function test_store_from_incoming_video_without_mp4_url_stores_type_only(): void
+    public function test_store_from_incoming_video_stores_metadata_without_download(): void
     {
         Storage::fake('local');
         Http::fake();
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Video,
-                payload: new VideoAttachmentPayload(url: new VideoUrls(preview: 'https://cdn.max.ru/p.jpg')),
-            ),
+            new VideoAttachment(new MediaAttachmentPayload(
+                url: 'https://cdn.max.ru/clip.mp4',
+                token: 'video-token',
+            )),
         ]);
 
-        $this->assertSame([['type' => 'video']], $meta);
+        $this->assertCount(1, $meta);
+        $this->assertSame('video', $meta[0]['type']);
+        $this->assertArrayNotHasKey('path', $meta[0]);
         $this->assertSame([], Http::recorded()->all());
     }
 
@@ -748,10 +620,7 @@ class MaxAttachmentStoreTest extends TestCase
         Http::fake();
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'file:///etc/passwd'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(photoId: 1, token: 'photo-token', url: 'file:///etc/passwd')),
         ]);
 
         $this->assertSame([['type' => 'image']], $meta);
@@ -763,10 +632,7 @@ class MaxAttachmentStoreTest extends TestCase
         Storage::fake('local');
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: ''),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(photoId: 1, token: 'photo-token', url: '')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -781,10 +647,7 @@ class MaxAttachmentStoreTest extends TestCase
         Http::fake(fn () => throw new \RuntimeException('network error'));
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::File,
-                payload: new FileAttachmentPayload(url: 'https://cdn.max.ru/file.bin'),
-            ),
+            new FileAttachment(new FileAttachmentPayload(url: 'https://cdn.max.ru/file.bin', token: 'file-token')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -801,10 +664,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::File,
-                payload: new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?filename=report.pdf'),
-            ),
+            new FileAttachment(new FileAttachmentPayload(url: 'https://fd.oneme.ru/getfile?filename=report.pdf', token: 'file-token')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -820,10 +680,7 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/noext'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(photoId: 1, token: 'photo-token', url: 'https://cdn.max.ru/noext')),
         ]);
 
         $this->assertCount(1, $meta);
@@ -840,10 +697,10 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $meta = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Audio,
-                payload: new \GeekCo\MaxPhpClient\Dto\AudioAttachmentPayload(url: 'https://cdn.max.ru/noext'),
-            ),
+            new AudioAttachment(new MediaAttachmentPayload(
+                url: 'https://cdn.max.ru/noext',
+                token: 'audio-token',
+            )),
         ]);
 
         $this->assertCount(1, $meta);
@@ -870,14 +727,8 @@ class MaxAttachmentStoreTest extends TestCase
         ]);
 
         $result = app(MaxAttachmentStore::class)->storeFromIncoming([
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/a.png'),
-            ),
-            new Attachment(
-                type: AttachmentType::Image,
-                payload: new ImageAttachmentPayload(url: 'https://cdn.max.ru/b.png'),
-            ),
+            new PhotoAttachment(new PhotoAttachmentPayload(photoId: 1, token: 'photo-token', url: 'https://cdn.max.ru/a.png')),
+            new PhotoAttachment(new PhotoAttachmentPayload(photoId: 1, token: 'photo-token', url: 'https://cdn.max.ru/b.png')),
         ]);
 
         $this->assertCount(2, $result);
