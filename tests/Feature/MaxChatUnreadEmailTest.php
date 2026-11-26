@@ -223,6 +223,108 @@ class MaxChatUnreadEmailTest extends TestCase
         $this->assertNotNull($oldest->fresh()?->notified_at);
     }
 
+    public function test_bot_commands_are_skipped_and_marked_without_mail(): void
+    {
+        config()->set('filament-max-chat.email.enabled', true);
+        config()->set('filament-max-chat.email.to', ['lead@example.test']);
+
+        $chat = $this->chat(114);
+        $command = $this->incoming($chat, 10, ['text' => '/start']);
+
+        $this->runCommand();
+
+        Mail::assertNothingSent();
+        $this->assertNotNull($command->fresh()?->notified_at);
+    }
+
+    public function test_command_with_bot_suffix_is_skipped_case_insensitively(): void
+    {
+        config()->set('filament-max-chat.email.enabled', true);
+        config()->set('filament-max-chat.email.to', ['lead@example.test']);
+
+        $chat = $this->chat(115);
+        $command = $this->incoming($chat, 10, ['text' => '/StArT@support_bot']);
+
+        $this->runCommand();
+
+        Mail::assertNothingSent();
+        $this->assertNotNull($command->fresh()?->notified_at);
+    }
+
+    public function test_empty_ignore_commands_disables_command_filtering(): void
+    {
+        config()->set('filament-max-chat.email.enabled', true);
+        config()->set('filament-max-chat.email.to', ['lead@example.test']);
+        config()->set('filament-max-chat.email.filters.ignore_commands', []);
+
+        $chat = $this->chat(116);
+        $this->incoming($chat, 10, ['text' => '/start']);
+
+        $this->runCommand();
+
+        Mail::assertSentTimes(UnreadChatsMail::class, 1);
+    }
+
+    public function test_allow_commands_lets_only_listed_commands_through(): void
+    {
+        config()->set('filament-max-chat.email.enabled', true);
+        config()->set('filament-max-chat.email.to', ['lead@example.test']);
+        config()->set('filament-max-chat.email.filters.ignore_commands', []);
+        config()->set('filament-max-chat.email.filters.allow_commands', ['support']);
+
+        $allowedChat = $this->chat(117);
+        $commandsChat = $this->chat(118);
+        $this->incoming($allowedChat, 10, ['text' => '/Support']);
+        $this->incoming($commandsChat, 10, ['text' => '/start']);
+
+        $this->runCommand();
+
+        Mail::assertSentTimes(UnreadChatsMail::class, 1);
+        $this->assertNotNull(MaxMessage::query()->where('max_chat_id', 118)->first()?->notified_at);
+    }
+
+    public function test_mixed_chat_digest_counts_only_notifiable_messages(): void
+    {
+        config()->set('filament-max-chat.email.enabled', true);
+        config()->set('filament-max-chat.email.to', ['lead@example.test']);
+
+        $chat = $this->chat(119);
+        $command = $this->incoming($chat, 20, ['text' => '/start']);
+        $important = $this->incoming($chat, 10, ['text' => 'Нужна помощь с заказом']);
+
+        $this->runCommand();
+
+        $mailable = Mail::sent(UnreadChatsMail::class)->first();
+        $this->assertInstanceOf(UnreadChatsMail::class, $mailable);
+        $this->assertSame(1, $mailable->chats[0]['count']);
+        self::assertStringContainsString('Нужна помощь с заказом', $mailable->render());
+        self::assertStringNotContainsString('/start', $mailable->render());
+        $this->assertNotNull($command->fresh()?->notified_at);
+        $this->assertNotNull($important->fresh()?->notified_at);
+    }
+
+    public function test_ignore_patterns_skip_spam_case_insensitively(): void
+    {
+        config()->set('filament-max-chat.email.enabled', true);
+        config()->set('filament-max-chat.email.to', ['lead@example.test']);
+        config()->set('filament-max-chat.email.filters.ignore_patterns', ['*http*', '*подпишись*']);
+
+        $chat = $this->chat(120);
+        $linkSpam = $this->incoming($chat, 30, ['text' => 'Купите на HTTP://spam.example']);
+        $textSpam = $this->incoming($chat, 20, ['text' => 'ПОДПИШИСЬ на канал']);
+        $important = $this->incoming($chat, 10, ['text' => 'Нужна помощь']);
+
+        $this->runCommand();
+
+        $mailable = Mail::sent(UnreadChatsMail::class)->first();
+        $this->assertInstanceOf(UnreadChatsMail::class, $mailable);
+        $this->assertSame(1, $mailable->chats[0]['count']);
+        self::assertStringContainsString('Нужна помощь', $mailable->render());
+        $this->assertNotNull($linkSpam->fresh()?->notified_at);
+        $this->assertNotNull($textSpam->fresh()?->notified_at);
+        $this->assertNotNull($important->fresh()?->notified_at);
+    }
+
     public function test_mail_renders_chat_name_preview_and_link(): void
     {
         config()->set('filament-max-chat.email.enabled', true);

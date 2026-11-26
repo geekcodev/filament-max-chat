@@ -4,6 +4,22 @@ declare(strict_types=1);
 
 use GeekCo\FilamentMaxChat\Models\MaxChat;
 
+/**
+ * Список из env-строки через запятую: пустые элементы отбрасываются.
+ *
+ * @return list<string>
+ */
+$csv = static function (mixed $value): array {
+    if (! is_string($value)) {
+        return [];
+    }
+
+    return array_values(array_filter(array_map(
+        static fn (string $item): string => trim($item),
+        explode(',', $value),
+    ), static fn (string $item): bool => $item !== ''));
+};
+
 return [
 
     /*
@@ -178,15 +194,25 @@ return [
     | (email из user_model); у каждого сообщения — одно письмо, повторов нет.
     | Требует настроенного MAIL_* хост-приложения. По умолчанию выключено.
     |
+    | filters — что не считать важным для письма:
+    | ignore_commands — команды (без слэша, регистр не важен), которые всегда
+    |   пропускаются; allow_commands — если непусто, команды вне списка тоже
+    |   пропускаются; обычные сообщения эти списки не трогают.
+    | ignore_patterns — wildcard-маски Laravel (`*`), регистр не важен: спам,
+    |   ссылки, реклама. Отфильтрованные сообщения помечаются notified_at, но
+    |   остаются в ленте и счётчике непрочитанного.
+    |
     */
 
     'email' => [
         'enabled' => filter_var(env('MAX_CHAT_EMAIL_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
         'unread_after_minutes' => (int) env('MAX_CHAT_EMAIL_UNREAD_AFTER_MINUTES', 5),
-        'to' => array_values(array_filter(array_map(
-            'trim',
-            explode(',', (string) env('MAX_CHAT_EMAIL_TO', '')),
-        ), static fn (string $email): bool => $email !== '')),
+        'to' => $csv(env('MAX_CHAT_EMAIL_TO', '')),
+        'filters' => [
+            'ignore_commands' => $csv(env('MAX_CHAT_EMAIL_IGNORE_COMMANDS', 'start,help,menu,settings,stop,cancel,back')),
+            'allow_commands' => $csv(env('MAX_CHAT_EMAIL_ALLOW_COMMANDS', '')),
+            'ignore_patterns' => $csv(env('MAX_CHAT_EMAIL_IGNORE_PATTERNS', '')),
+        ],
     ],
 
     /*
